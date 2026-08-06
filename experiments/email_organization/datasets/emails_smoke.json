@@ -1,0 +1,44 @@
+[
+  {
+    "id": "e001",
+    "headers": {
+      "from": "Sarah Nguyen <s.nguyen@company.com>",
+      "to": "you@company.com",
+      "cc": "",
+      "date": "Mon, 27 Jul 2026 08:15:00 +0100",
+      "subject": "Action required: sign Q3 budget approval by Friday"
+    },
+    "body": "Hi,\n\nPlease review and sign the attached Q3 budget approval document by this Friday EOD. Finance needs it to process vendor payments.\n\nLet me know if you have questions.\n\nThanks,\nSarah",
+    "label": {
+      "classification": "action_required",
+      "actions": [
+        {"verb": "sign", "subject": "Q3 budget approval document", "deadline": "Friday EOD"}
+      ],
+      "next_step": "reply",
+      "draft": "Hi Sarah,\n\nThanks for the reminder. I'll review and sign the document by Friday EOD.\n\nBest"
+    },
+    "category": "single-ask",
+    "difficulty": "easy",
+    "why_challenging": ""
+  },
+  {
+    "id": "e002",
+    "headers": {
+      "from": "Example Store <deals@example.com>",
+      "to": "you@company.com",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 14:03:00 +0100",
+      "subject": "50% off this weekend only — flash sale!"
+    },
+    "body": "Don't miss our biggest sale of the year! Everything in store is 50% off this weekend only. Shop now at example.com/sale\n\nUnsubscribe | View in browser",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "easy",
+    "why_challenging": ""
+  }
+]

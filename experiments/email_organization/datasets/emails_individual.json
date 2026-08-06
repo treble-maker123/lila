@@ -1,0 +1,802 @@
+[
+  {
+    "id": "e001",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e002",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e003",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e004",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e005",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e006",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "promotional",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e007",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e008",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e009",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e010",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e011",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e012",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "fyi",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e013",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e014",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e015",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e016",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e017",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e018",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e019",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e020",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e021",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e022",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e023",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e024",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e025",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e026",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e027",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e028",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e029",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e030",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e031",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e032",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e033",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e034",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e035",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e036",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "action_required",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e037",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "suspicious",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e038",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "suspicious",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e039",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "suspicious",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "why_challenging": ""
+  },
+  {
+    "id": "e040",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "classification": "suspicious",
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "why_challenging": ""
+  }
+]

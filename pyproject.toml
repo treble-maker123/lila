@@ -1,0 +1,28 @@
+[project]
+name = "lila"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["experiments/email_organization"]
+
+[dependency-groups]
+dev = [
+    "black>=24.0",
+    "ruff>=0.5",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]

@@ -1,0 +1,13 @@
+{
+  "python.analysis.extraPaths": [
+    "experiments/email_organization"
+  ],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true
+  },
+  "black-formatter.path": ["${workspaceFolder}/.venv/bin/black"],
+  "ruff.path": ["${workspaceFolder}/.venv/bin/ruff"],
+  "ruff.lint.enable": true,
+  "ruff.organizeImports": true
+}

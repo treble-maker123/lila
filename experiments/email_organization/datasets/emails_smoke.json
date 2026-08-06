@@ -12,14 +12,23 @@
     "label": {
       "classification": "action_required",
       "actions": [
-        {"verb": "sign", "subject": "Q3 budget approval document", "deadline": "Friday EOD"}
+        {
+          "verb": "sign",
+          "subject": "Q3 budget approval document",
+          "deadline": "Friday EOD"
+        }
       ],
-      "next_step": "reply",
-      "draft": "Hi Sarah,\n\nThanks for the reminder. I'll review and sign the document by Friday EOD.\n\nBest"
+      "next_step": "flag_for_human",
+      "draft": null
     },
     "category": "single-ask",
     "difficulty": "easy",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": { "available": true },
+      "check_unknown_sender": { "known": true },
+      "get_note": { "note": null }
+    }
   },
   {
     "id": "e002",
@@ -39,6 +48,11 @@
     },
     "category": "promotional",
     "difficulty": "easy",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": { "available": true },
+      "check_unknown_sender": { "known": false },
+      "get_note": { "note": null }
+    }
   }
 ]

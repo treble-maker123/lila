@@ -29,10 +29,21 @@ For the latest distribution on data labels, refer to the experiment README.md do
 
 Below are some hand-curated seed data to jump start the data generation process.
 
-#### Betterment Suspicious
-
-See [this doc](seed/betterment_scam.md)
-
-#### Dunkin' Rewards
-
-See [this doc](seed/dunkin_promotion.md)
+- [This doc](seed/action_required-awaiting_payment.md)
+  - Note: An easy example of action_required,
+- [This doc](seed/fyi-gas_bill.md)
+  - Note: An easy example fyi,
+- [This doc](seed/multi_ask-action_required.md)
+  - Note: An easy example of flagging the human for multiple actions,
+- [This doc](seed/promotional-dunkin.md)
+  - Note: An easy promotional E-mail
+- [This doc](seed/single_ask-action_required-contradictory_note.md)
+  - Note: A difficult example of single ask and flagging the human because of contradictory information, i.e. 18-month term vs. 24-month term,
+- [This doc](seed/single_ask-action_required.md)
+  - Note: A difficult example of single ask where the information is available in the notes. This is potentially difficult because the information is buried in the notes,
+- [This doc](seed/single_ask-no_information.md)
+  - Note: An easy example of single ask with insufficient information requiring human intervention,
+- [This doc](seed/single_ask-with_information.md)
+  - Note: An easy example of single ask where if querying get_note, the agent should be able to respond directly,
+- [This doc](seed/suspicious-betterment_scam.md)
+  - Note: An easy example of a suspicious E-mail.

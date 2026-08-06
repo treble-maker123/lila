@@ -4,9 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-Classification = Literal[
-    "action_required", "fyi", "promotional", "suspicious", "don't know"
-]
+Classification = Literal["action_required", "fyi", "promotional", "suspicious", "don't know"]
 NextStep = Literal["reply", "no_action", "flag_for_human"]
 # Generation-time bucket the email was scaffolded under (see datasets/scripts/generate_individual.py).
 # Blank ("") for hand-written emails that were not scaffolded.
@@ -53,13 +51,20 @@ class Email(BaseModel):
     label: Label
     category: Category = ""
     difficulty: Difficulty = ""
-    # Human-annotated note on what makes this data point challenging. Blank ("")
-    # until hand-written.
-    why_challenging: str = ""
+    # Free-form human-annotated note about this data point. Blank ("") until
+    # hand-written.
+    note: str = ""
+    # Fixed return values for the environment tools, keyed by tool name. The mock
+    # MCP server (see src/mcp_server.py) returns these verbatim so a run's tool
+    # observations stay deterministic. Shape is tool-specific, e.g.
+    # {"check_calendar_available": {"available": false}}. Empty when the email
+    # needs no lookups.
+    tool_returns: dict[str, Any] = Field(default_factory=dict)
 
 
 class Metrics(BaseModel):
-    correct: bool
+    # Accuracy was intentionally dropped; scoring is done separately/later against
+    # the captured outputs. These are cost metrics only.
     tokens_in: int
     tokens_out: int
     wall_clock_ms: int
@@ -124,7 +129,6 @@ class VotedInferenceResult(BaseModel):
 
 class MetricsSummary(BaseModel):
     total: int
-    accuracy: float
     tokens_in: int
     tokens_out: int
     wall_clock_ms: int
@@ -137,7 +141,6 @@ class SetupSummary(BaseModel):
     label: str
     runs: int
     emails: int
-    accuracy: float
     tokens_in: int
     tokens_out: int
     wall_clock_ms: int

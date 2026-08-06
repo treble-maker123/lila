@@ -48,3 +48,4 @@ Classification: "suspicious"
 Actions: []
 Next Step: "flag_for_human"
 Draft: null
+Tool Returns: {"check_unknown_sender": {"known": false}}

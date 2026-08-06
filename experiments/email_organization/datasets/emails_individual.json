@@ -17,7 +17,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e002",
@@ -37,7 +48,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e003",
@@ -57,7 +79,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e004",
@@ -77,7 +110,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e005",
@@ -97,7 +141,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e006",
@@ -117,7 +172,18 @@
     },
     "category": "promotional",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e007",
@@ -137,7 +203,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e008",
@@ -157,7 +234,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e009",
@@ -177,7 +265,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e010",
@@ -197,7 +296,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e011",
@@ -217,7 +327,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e012",
@@ -237,7 +358,18 @@
     },
     "category": "fyi",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e013",
@@ -257,7 +389,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e014",
@@ -277,7 +420,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e015",
@@ -297,7 +451,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e016",
@@ -317,7 +482,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e017",
@@ -337,7 +513,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e018",
@@ -357,7 +544,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e019",
@@ -377,7 +575,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e020",
@@ -397,7 +606,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e021",
@@ -417,7 +637,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e022",
@@ -437,7 +668,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e023",
@@ -457,7 +699,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e024",
@@ -477,7 +730,18 @@
     },
     "category": "single-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e025",
@@ -497,7 +761,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e026",
@@ -517,7 +792,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e027",
@@ -537,7 +823,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e028",
@@ -557,7 +854,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e029",
@@ -577,7 +885,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e030",
@@ -597,7 +916,18 @@
     },
     "category": "multi-ask",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e031",
@@ -617,7 +947,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e032",
@@ -637,7 +978,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e033",
@@ -657,7 +1009,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e034",
@@ -677,7 +1040,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e035",
@@ -697,7 +1071,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e036",
@@ -717,7 +1102,18 @@
     },
     "category": "buried",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e037",
@@ -737,7 +1133,18 @@
     },
     "category": "suspicious",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e038",
@@ -757,7 +1164,18 @@
     },
     "category": "suspicious",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e039",
@@ -777,7 +1195,18 @@
     },
     "category": "suspicious",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   },
   {
     "id": "e040",
@@ -797,6 +1226,17 @@
     },
     "category": "suspicious",
     "difficulty": "",
-    "why_challenging": ""
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "note": null
+      }
+    }
   }
 ]

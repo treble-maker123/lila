@@ -12,3 +12,4 @@ Classification: "promotion"
 Actions: []
 Next Step: "no_action"
 Draft: null
+Tool Returns: {"check_unknown_sender": {"known": false}}

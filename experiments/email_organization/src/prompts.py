@@ -12,6 +12,48 @@ from src.models import Email
 # Fixed "now" injected into every prompt so time is held constant across runs.
 CURRENT_TIME = "Wed, 29 Jul 2026 09:40:10 +0400"
 
+# Task-agnostic agent-loop prompt. Deliberately generic so it is NOT tuned for
+# email triage: the ReAct setups pair it with EMAIL_TRIAGE_SKILL below, which is
+# the declarative peer of the fixed control flow the graph setup encodes in code.
+# Keeping the two separate lets us toggle the skill (generic agent with vs.
+# without the procedure) and keeps the loop-vs-graph comparison apples-to-apples.
+GENERIC_AGENT_SYSTEM = (
+    "You are an autonomous assistant that completes tasks using the tools provided. "
+    "Work in a loop: call tools to gather information and to take actions, read each "
+    "result, and continue until the task is done. Use only the available tools, and "
+    "stop once you have done what the task requires."
+)
+
+# The reply / flag_for_human / no-action definitions, worded once and shared by both
+# the ReAct skill (EMAIL_TRIAGE_SKILL) and the graph's decide node (setup 2), so
+# neither setup gets a subtly better description of the task. Each setup wraps these
+# definitions in its own mechanism framing (a tool call vs. a JSON route value).
+ROUTING_POLICY = (
+    "- reply: you have enough information to answer the sender directly.\n"
+    "- flag_for_human: it needs doing but you can't - out of scope (action in another "
+    "system, e.g. paying) or missing information. Provide the action items that need "
+    "attention (verb, subject, optional deadline).\n"
+    "- no action: the email is promotional, fyi, automated, or you're only CC'd - "
+    "nothing to do.\n"
+)
+
+# The email-triage procedure, expressed as a skill the agent follows. This is the
+# same procedure setup 2 encodes structurally in its graph, so do not duplicate it
+# into a bespoke system prompt — pair it with GENERIC_AGENT_SYSTEM instead. The
+# routing definitions are shared with the graph via ROUTING_POLICY.
+EMAIL_TRIAGE_SKILL = (
+    "# Skill: email triage\n"
+    "Triage the user's inbox one email at a time.\n"
+    "1. Call get_new_email to fetch the email to process.\n"
+    "2. Gather any context you need to decide: check_calendar_available (scheduling "
+    "asks), check_unknown_sender (to spot suspicious senders), get_note (to answer "
+    "from the user's notes).\n"
+    "3. Then route the email using these definitions:\n"
+    f"{ROUTING_POLICY}"
+    "Act on the route: call reply(message) or flag_for_human(actions); for no action, "
+    "stop without calling either.\n"
+)
+
 
 def render_email(email: Email) -> str:
     """Render an email (envelope + body) for inclusion in a prompt, prefixed

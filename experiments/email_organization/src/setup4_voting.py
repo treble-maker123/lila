@@ -7,7 +7,6 @@ from collections import Counter
 from typing import TypeVar
 
 from src import setup1_react_local
-from src.metrics import label_correct
 from src.models import (
     Debug,
     Email,
@@ -42,25 +41,16 @@ def run_email_voted(
         total_out += inferred.tokens_out
         total_steps += inferred.steps
 
-    classification = _plurality([l.classification for l in all_labels])
     next_step = _plurality([l.next_step for l in all_labels])
 
-    # Use actions from the run that had the plurality classification + next_step
-    matching = [
-        l for l in all_labels if l.classification == classification and l.next_step == next_step
-    ]
+    # Use actions from the first run that landed on the plurality next_step.
+    matching = [l for l in all_labels if l.next_step == next_step]
     best = matching[0] if matching else all_labels[0]
 
-    agreement = (
-        sum(
-            1 for l in all_labels if l.classification == classification and l.next_step == next_step
-        )
-        / n_runs
-    )
+    agreement = sum(1 for l in all_labels if l.next_step == next_step) / n_runs
 
     return VotedInferenceResult(
         label=Label(
-            classification=classification,
             actions=best.actions,
             next_step=next_step,
             draft=best.draft if next_step == "reply" else None,
@@ -97,7 +87,6 @@ def run(
                 email_id=email.id,
                 predicted=voted.label,
                 metrics=Metrics(
-                    correct=label_correct(voted.label, email.label),
                     tokens_in=voted.tokens_in,
                     tokens_out=voted.tokens_out,
                     wall_clock_ms=elapsed_ms,

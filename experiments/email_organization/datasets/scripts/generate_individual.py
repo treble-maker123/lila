@@ -1,9 +1,13 @@
 """Generate the scaffolding for datasets/emails_individual.json.
 
 This produces 40 email objects with empty headers/body, empty actions, null
-draft, and blank difficulty/why_challenging. Only ``label.classification`` and
+draft, and blank difficulty/note. Only ``label.classification`` and
 ``label.next_step`` are populated, following the distribution documented in
 ../README.md and datasets/EMAIL_GUIDELINE.md.
+
+``tool_returns`` is scaffolded with the canonical read-tool values
+(``READ_TOOL_DEFAULTS`` below) so every email answers each read tool explicitly;
+the person filling in the email overrides only the interesting deviations.
 
 Run from the experiment root:
 
@@ -20,6 +24,16 @@ from pydantic import BaseModel
 
 # Script lives in datasets/scripts/; the dataset is written to datasets/.
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "emails_individual.json"
+
+# Canonical "nothing special" return for each read tool: empty calendar = free,
+# sender is a known contact, no matching note. Every scaffolded email carries these
+# explicitly (the mock server never defaults — see src/mcp_server.py), so a read
+# tool always has an answer; hand-labeling overrides only the interesting deviations.
+READ_TOOL_DEFAULTS: dict[str, dict[str, object]] = {
+    "check_calendar_available": {"available": True},
+    "check_unknown_sender": {"known": True},
+    "get_note": {"note": None},
+}
 
 
 class Segment(BaseModel):
@@ -89,7 +103,10 @@ def build_emails() -> list[dict]:
                     },
                     "category": segment.category,
                     "difficulty": "",
-                    "why_challenging": "",
+                    "note": "",
+                    "tool_returns": {
+                        tool: dict(value) for tool, value in READ_TOOL_DEFAULTS.items()
+                    },
                 }
             )
     return emails

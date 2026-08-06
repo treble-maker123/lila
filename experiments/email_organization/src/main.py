@@ -160,7 +160,6 @@ def run(
     table.add_column("Setup")
     table.add_column("Runs", justify="right")
     table.add_column("Emails", justify="right")
-    table.add_column("Accuracy", justify="right")
     table.add_column("Tokens In", justify="right")
     table.add_column("Tokens Out", justify="right")
     table.add_column("Wall ms", justify="right")
@@ -176,7 +175,6 @@ def run(
                 label=labels[setup_id],
                 runs=len(run_list),
                 emails=len(emails),
-                accuracy=s.accuracy,
                 tokens_in=s.tokens_in,
                 tokens_out=s.tokens_out,
                 wall_clock_ms=s.wall_clock_ms,
@@ -186,7 +184,6 @@ def run(
             labels[setup_id],
             str(len(run_list)),
             str(len(emails)),
-            f"{s.accuracy:.1%}",
             str(s.tokens_in),
             str(s.tokens_out),
             str(s.wall_clock_ms),

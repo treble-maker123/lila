@@ -4,6 +4,11 @@ Common task for local agents, no?
 
 (Ran on an M1 MacBook Pro with 16GB of RAM)
 
+## Getting Started
+
+- Run `make run-smoke` in the directory to kick off a [smoke test](datasets/emails_smoke.json) to make sure everything is working as expected,
+- A few hand-curated realistic seed data points can be found in `datasets/seed`,
+
 ## Hypothesis
 
 Decomposition allows a 9B model to match a frontier loop on extraction accuracy, at the cost of higher wall-clock.

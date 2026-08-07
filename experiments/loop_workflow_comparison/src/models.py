@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import statistics
+from math import comb
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from src.memory import MemoryFootprint
 
 # ``error`` is a *prediction-only* value: it means the setup never produced a
 # routing decision (see ErrorKind). Gold labels in the datasets must never use it,
@@ -10,6 +14,11 @@ from pydantic import BaseModel, ConfigDict, Field
 # a synonym for ``no_action`` — a setup that legitimately declines to act reports
 # ``no_action``, and only pathological terminations report ``error``.
 NextStep = Literal["reply", "no_action", "flag_for_human", "error"]
+# The routes a setup may legitimately choose, and the only classes scored one-vs-rest.
+# ``error`` is not among them: gold never says ``error``, so its tp and fn would be
+# structurally 0 and its counts would just restate the error rate. Error *predictions*
+# still land in these classes' counts — see ClassCounts.
+ROUTING_CLASSES: tuple[str, ...] = ("reply", "no_action", "flag_for_human")
 # Generation-time bucket the email was scaffolded under (see datasets/scripts/generate_individual.py).
 # Blank ("") for hand-written emails that were not scaffolded.
 Category = Literal["promotional", "fyi", "single-ask", "multi-ask", "buried", "suspicious", ""]
@@ -134,6 +143,14 @@ class Metrics(BaseModel):
     # Per-call prompt token counts, in call order, so the two totals above can be
     # re-derived and the provider's own caching behaviour audited.
     prompt_tokens: list[int] = Field(default_factory=list)
+    # Most context the setup held at once on this email: max over provider calls of
+    # (prompt + generated) tokens. This is the setup's KV high-water mark, and the
+    # loop-vs-graph memory difference lives here — the loop re-sends a growing
+    # transcript, the graph starts each node fresh.
+    peak_context_tokens: int = 0
+    # peak_context_tokens priced in bytes against the measured server (src/memory.py).
+    # None when calibration failed; the token count above still stands.
+    memory: MemoryFootprint | None = None
 
 
 class LoopDebug(BaseModel):
@@ -185,6 +202,8 @@ class InferenceResult(BaseModel):
     tokens_in_cumulative: int
     tokens_in_unique: int
     tokens_out: int
+    # Max over provider calls of (prompt + generated) tokens; see Metrics.
+    peak_context_tokens: int = 0
     steps: int = 0
     error: RunError | None = None
     warnings: list[RunWarning] = Field(default_factory=list)
@@ -199,6 +218,10 @@ class MetricsSummary(BaseModel):
     tokens_out: int
     wall_clock_ms: int
     errors: int
+    # Memory aggregates upward as a max, not a sum: emails run one after another, so
+    # what a setup needs is its worst email, not the total across them.
+    peak_context_tokens: int = 0
+    memory: MemoryFootprint | None = None
 
 
 class SetupSummary(BaseModel):
@@ -214,3 +237,144 @@ class SetupSummary(BaseModel):
     wall_clock_ms: int
     # Email-runs that produced no routing decision (predicted.next_step == "error").
     errors: int
+    # High-water mark across every email of every run of this setup.
+    peak_context_tokens: int = 0
+    memory: MemoryFootprint | None = None
+
+
+class Distribution(BaseModel):
+    """A per-run count, stored as the raw per-run values.
+
+    ``values`` is the stored truth — the harness emits counts, not ratios (see README
+    "Metrics"), and keeping the per-run values is what lets runs be re-aggregated
+    later. The summary statistics are computed from them rather than stored, but do
+    serialize, so a results file can be read without recomputing anything.
+    """
+
+    values: list[int] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def mean(self) -> float:
+        return statistics.fmean(self.values) if self.values else 0.0
+
+    @computed_field
+    @property
+    def minimum(self) -> int:
+        return min(self.values, default=0)
+
+    @computed_field
+    @property
+    def maximum(self) -> int:
+        return max(self.values, default=0)
+
+    @computed_field
+    @property
+    def stdev(self) -> float:
+        """Sample stdev; 0.0 for a single run, which has no spread to report."""
+        return statistics.stdev(self.values) if len(self.values) > 1 else 0.0
+
+
+class ClassCounts(BaseModel):
+    """One-vs-rest counts for a single routing class, summed over runs.
+
+    An ``error`` prediction is counted against every class: ``fn`` for the class the
+    label owed, ``fp`` for the others. It is never a ``tn``, which would credit a setup
+    for failing to decide on an email it was never going to get right anyway. Under
+    this rule each email-run contributes exactly one cell, so tp+fp+fn+tn == email-runs
+    for every class.
+    """
+
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
+
+    @computed_field
+    @property
+    def precision(self) -> float:
+        denom = self.tp + self.fp
+        return self.tp / denom if denom else 0.0
+
+    @computed_field
+    @property
+    def recall(self) -> float:
+        denom = self.tp + self.fn
+        return self.tp / denom if denom else 0.0
+
+    @computed_field
+    @property
+    def f1(self) -> float:
+        denom = self.precision + self.recall
+        return 2 * self.precision * self.recall / denom if denom else 0.0
+
+
+class ErrorBreakdown(BaseModel):
+    """Email-runs that produced no routing decision, split by ErrorKind."""
+
+    total: int = 0
+    by_kind: dict[str, int] = Field(default_factory=dict)
+
+
+class PassPoint(BaseModel):
+    """One point of the pass^k curve: the share of emails answered correctly by all
+    k runs of a randomly chosen k of the n that were performed."""
+
+    k: int
+    value: float
+
+
+def pass_hat_k(successes: list[int], runs: int, k: int) -> float:
+    """Share of emails that a randomly chosen k of the ``runs`` trials all get right.
+
+        pass^k = (1/emails) * sum_i C(c_i, k) / C(runs, k)
+
+    Unbiased in the number of trials, unlike sampling k of them directly. C(c, k) is 0
+    when c < k, so an email answered correctly fewer than k times contributes nothing —
+    pass^k is all-or-nothing per email, which is the point.
+    """
+    if not successes or not 1 <= k <= runs:
+        return 0.0
+    return sum(comb(c, k) for c in successes) / (comb(runs, k) * len(successes))
+
+
+class LabelMetrics(BaseModel):
+    """Routing accuracy for one setup across every run of it (README "Labels")."""
+
+    setup: int
+    label: str
+    runs: int
+    emails: int
+    # Per run, over all emails. An ``error`` is never correct.
+    correct: Distribution
+    # Per run: emails - errors. Denominator for routing quality with robustness out.
+    decided: Distribution
+    # Per email, whether the most common answer across runs matches the label. A tie
+    # is no consensus and so never correct.
+    majority_correct: int
+    # Per email, how many runs matched the label. The whole pass^k curve derives from
+    # these counts, so no k needs to be chosen at scoring time.
+    successes: dict[str, int] = Field(default_factory=dict)
+    by_next_step: dict[str, ClassCounts] = Field(default_factory=dict)
+    # Same counts sliced by Email.category, showing which email shapes break.
+    by_category: dict[str, dict[str, ClassCounts]] = Field(default_factory=dict)
+    errors: ErrorBreakdown = Field(default_factory=ErrorBreakdown)
+
+    @computed_field
+    @property
+    def email_runs(self) -> int:
+        return self.emails * self.runs
+
+    @computed_field
+    @property
+    def error_rate(self) -> float:
+        return self.errors.total / self.email_runs if self.email_runs else 0.0
+
+    @computed_field
+    @property
+    def pass_curve(self) -> list[PassPoint]:
+        """pass^k for k = 1…runs. pass^1 equals the mean of correct/emails."""
+        counts = list(self.successes.values())
+        return [
+            PassPoint(k=k, value=pass_hat_k(counts, self.runs, k)) for k in range(1, self.runs + 1)
+        ]

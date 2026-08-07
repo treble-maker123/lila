@@ -22,7 +22,7 @@
     },
     "category": "single-ask",
     "difficulty": "easy",
-    "note": "",
+    "note": "Promotional mail with no action item. Even though the sender is not a contact, the correct route is still no_action because the email only announces a sale and does not ask the user to do anything.",
     "tool_returns": {
       "check_calendar_available": {
         "available": true
@@ -52,7 +52,7 @@
     },
     "category": "promotional",
     "difficulty": "easy",
-    "note": "check_unknown_sender returns false because a store is genuinely not a contact. On its own the model reads that as suspicious and escalates; the standing preference in get_note is what makes no_action the grounded answer rather than a guess.",
+    "note": "",
     "tool_returns": {
       "check_calendar_available": {
         "available": true
@@ -61,10 +61,7 @@
         "known": false
       },
       "get_note": {
-        "notes": [
-          "The user does not want promotional or marketing email surfaced. Leave it in the inbox and take no action, even from senders who are not contacts.",
-          "The user prefers meetings after 10am."
-        ]
+        "notes": []
       }
     }
   }

@@ -9,6 +9,7 @@ from collections.abc import Callable
 import ollama
 
 from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError
+from src.memory import KVProfile
 from src.models import (
     DEFAULT_DRAFT,
     Action,
@@ -71,7 +72,7 @@ def parse_actions(raw: object, warnings: list[RunWarning]) -> list[Action]:
 
 
 def run_email(
-    email: Email, model: str, ollama_url: str, temperature: float, think: bool
+    email: Email, model: str, ollama_url: str, temperature: float, think: bool, num_ctx: int
 ) -> InferenceResult:
     client = ollama.Client(host=ollama_url)
     server = MockMCPServer(email)
@@ -83,6 +84,10 @@ def run_email(
     state: dict[str, object] = {"actions": [], "next_step": None, "draft": None}
     prompt_tokens: list[int] = []
     tokens_out = 0
+    # KV high-water mark. The last call of a growing conversation is normally the
+    # largest, but take the max rather than the last so a truncated or failed final
+    # call cannot understate what the loop actually held.
+    peak_context_tokens = 0
     steps = 0
     loops: list[LoopDebug] = []
     warnings: list[RunWarning] = []
@@ -99,7 +104,7 @@ def run_email(
                 messages=messages,
                 tools=TOOLS,
                 think=think,
-                options={"temperature": temperature},
+                options={"temperature": temperature, "num_ctx": num_ctx},
             )
         except Exception as exc:  # transport/decode/timeout from the backend
             error = RunError(kind="provider_error", detail=f"{type(exc).__name__}: {exc}")
@@ -107,6 +112,9 @@ def run_email(
         msg = resp.message
         prompt_tokens.append(resp.prompt_eval_count or 0)
         tokens_out += resp.eval_count or 0
+        peak_context_tokens = max(
+            peak_context_tokens, (resp.prompt_eval_count or 0) + (resp.eval_count or 0)
+        )
         loops.append(
             LoopDebug(
                 input=[dict(m) for m in messages],
@@ -186,6 +194,7 @@ def run_email(
         # the last one and the final prompt is the count of distinct input tokens.
         tokens_in_unique=prompt_tokens[-1] if prompt_tokens else 0,
         tokens_out=tokens_out,
+        peak_context_tokens=peak_context_tokens,
         steps=steps,
         error=error,
         warnings=warnings,
@@ -200,12 +209,17 @@ def run(
     ollama_url: str,
     temperature: float,
     think: bool,
+    num_ctx: int,
+    profile: KVProfile | None,
     on_result: Callable[[RunResult], None] | None = None,
 ) -> list[RunResult]:
     results: list[RunResult] = []
     for email in emails:
+        if not email.body.strip():
+            print(f"[setup1] {email.id}: skipped empty email")
+            continue
         t0 = time.monotonic()
-        inferred = run_email(email, model, ollama_url, temperature, think)
+        inferred = run_email(email, model, ollama_url, temperature, think, num_ctx)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         suffix = f" [{inferred.error.kind}]" if inferred.error else ""
         print(f"[setup1] {email.id}: {inferred.steps} ReAct loop iteration(s){suffix}")
@@ -220,6 +234,8 @@ def run(
                 wall_clock_ms=elapsed_ms,
                 steps=inferred.steps,
                 prompt_tokens=inferred.prompt_tokens,
+                peak_context_tokens=inferred.peak_context_tokens,
+                memory=profile.footprint(inferred.peak_context_tokens) if profile else None,
             ),
             error=inferred.error,
             warnings=inferred.warnings,

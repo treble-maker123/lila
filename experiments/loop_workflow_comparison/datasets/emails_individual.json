@@ -1,0 +1,1259 @@
+[
+  {
+    "id": "e001",
+    "headers": {
+      "from": "Orchard & Loom Rewards <news@orchardloommail.co>",
+      "to": "John S. <personal@amadeus.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 08:10:00 +0400",
+      "subject": "Your early access preview starts now"
+    },
+    "body": "Hi John,\\n\\nYou are on the preview list for our Fall Layering Event, so you get early access before the public launch. For the next 72 hours, members can browse the newest wool throws, linen shams, pendant lights, woven storage baskets, and tabletop pieces before they appear in the main catalog. Nothing is required from you; this is simply the full announcement with the usual fine print and links in case you want to browse later.\\n\\nHighlights from the preview:\\n- 20% off sitewide through Friday at midnight\\n- Free shipping over $75 in the continental U.S.\\n- New colors added to the Rowan, Mercer, and Vale lines\\n- Gift receipts now available at checkout\\n- Members can combine this event with unused birthday rewards\\n\\nA few exclusions apply. Custom upholstery, made-to-order lighting, gift cards, and previous purchases are not eligible for price adjustments. Inventory varies by location, and items in your cart are not reserved until checkout is complete. If an item sells out during the preview, we will note expected restock dates on the product page.\\n\\nIf you would rather not receive these notices, you can unsubscribe from the list below. Offer terms, exclusions, and return policy details are available at the link in the footer. This email was sent by Orchard & Loom, 88 Mercer St, Brooklyn, NY 11222. To manage preferences, visit the email preferences page or reply to this message if you have trouble with the unsubscribe link.\\n\\nUnsubscribe | Preferences | Terms | Privacy\\n",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "easy",
+    "note": "Marketing roundup with footer noise and no actionable request. The sender line, product list, and unsubscribe text are the only useful parts; the rest is standard promo filler.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": false
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e002",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e003",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e004",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e005",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e006",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "promotional",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e007",
+    "headers": {
+      "from": "Flight Ops Desk <updates@northshoreair.example>",
+      "to": "Alex Chen <travel@northstar.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 08:25:00 +0400",
+      "subject": "Gate update for your evening flight"
+    },
+    "body": "Travel update for passenger Alex Chen:\\n\\nYour evening Northshore Air flight NS 418 from Portland to Boston is still scheduled to depart today, Tuesday, July 28, at 18:30 local time. The departure gate has changed from C8 to B14 because of construction near the C concourse. Boarding is expected to begin at 17:55, and the scheduled arrival time remains 19:48.\\n\\nNo response is needed. If you already checked in, your boarding pass will refresh automatically in the mobile app the next time it is opened. Printed boarding passes are still valid, but the gate printed on them may be outdated. Airport monitors and the mobile app will show the latest information.\\n\\nIf you are checking a bag, please allow extra time to walk from the ticketing counter to the B concourse. The airport advisory says the usual walkway is partially closed, so passengers are being routed through the central hall. Lounge access, seat assignments, and meal selections are unchanged.\\n\\nThe flight remains eligible for standard same-day standby if you choose to travel earlier, but no schedule change has been made to your reservation. Weather conditions in Boston are currently clear, and ground transportation partners have not reported delays. We will send another notice only if the departure time, gate, or baggage claim assignment changes again.\\n\\nThank you for flying with Northshore Air.\\n",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "easy",
+    "note": "Operational notice with no reply needed. The gate change is the only part that matters; the rest is routine travel boilerplate.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e008",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e009",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "no_action",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e010",
+    "headers": {
+      "from": "Carla Nguyen <carla.nguyen@brightline-studio.example>",
+      "to": "Amadeus R. <work.alias@relay.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 08:40:00 +0400",
+      "subject": "Re: deck appendix"
+    },
+    "body": "Quick update before I send the client note. I moved the Amir check-in to Thursday afternoon after his team said Wednesday was too packed with procurement calls. The agenda is otherwise the same: opening metrics, implementation status, risks, and then the appendix question if we are still comfortable mentioning it.\\n\\nI cleaned up the deck this morning and removed the duplicate customer logos from the middle section. I also renamed the old appendix tab so the file no longer says \"draft pricing\" in the sidebar. What I have not done yet is tell Amir whether the pricing appendix will be included in the final deck or held back for a separate follow-up.\\n\\nI remember there was some sensitivity around putting pricing too prominently in writing, so I am not going to invent a position here. The note I am drafting can simply say the final deck will include the materials his procurement team asked for, or it can say we will send pricing assumptions separately after the call. Either path is fine from my side.\\n\\nOne quick question before I send the note: should I tell Amir the pricing appendix will be included in the final deck? I do not need language for the whole email, just the yes/no answer so I can finish the update.\\n\\nThanks,\\nCarla\\n",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "medium",
+    "note": "Relevant retrieved memory says the appendix belongs in the final deck, with adjacent notes about wording and prior draft cleanup.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-24] Amir pricing review: keep the pricing appendix in the final deck so procurement can see the assumptions in one file.",
+          "[2026-07-25] Do not put pricing in the subject line; Amir asked us to keep the email subject generic.",
+          "[2026-07-26] Carla already removed the draft-watermark slide from the appendix."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e011",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e012",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "fyi",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e013",
+    "headers": {
+      "from": "Ben Ortiz <b.ortiz@northwind.example>",
+      "to": "A. Rivera <launch-review@privaterelay.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 08:55:00 +0400",
+      "subject": "Title for the launch deck"
+    },
+    "body": "Hey,\\n\\nI am about to send Dana the launch deck for the Friday review, but the file names are inconsistent across the folder. The Keynote export says Q3 Launch Review, the PDF from last week says Q3 Kickoff, and the notes doc has a working title that I do not think we ever meant to show externally. I want to settle this before I send anything because Dana tends to forward the first version she receives.\\n\\nCan you confirm what title I should use for the deck I am sending to Dana? I do not need changes to the slides right now. The charts are already updated with the latest activation numbers, and Mira checked the product screenshots this morning. I only need the title so the cover slide, filename, and email copy match.\\n\\nThe body copy of the email is otherwise done. It says this is the review version, not the final board packet, and it points Dana to the implementation section first because that is what she asked for in the last meeting. I also removed the old launch-date caveat after product confirmed the date yesterday.\\n\\nIf you want me to hold the send until after your 11:00, I can, but otherwise I will package it as soon as I have the title.\\n\\nBen\\n",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "easy",
+    "note": "Single title question; retrieved memory contains the current title plus older names that should not be used.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-23] Launch deck naming: final title should be \"Q3 Launch Review\".",
+          "[2026-07-18] Old working title was \"Q3 Kickoff\"; replace it before sending to Dana.",
+          "[2026-07-27] Dana only needs the deck, not the separate appendix PDF."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e014",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e015",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e016",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e017",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e018",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e019",
+    "headers": {
+      "from": "Julian Park <julian.park@clearpathconsulting.example>",
+      "to": "A. Rivera <contracts@company.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 09:05:00 +0400",
+      "subject": "Consulting agreement signature"
+    },
+    "body": "Hi Amadeus,\\n\\nThe consulting agreement is ready and the vendor would like a signed copy back by Wednesday so they can move your onboarding into the queue. I know the review has been going back and forth, but their operations team is asking for the signature packet before they assign a project manager.\\n\\nCould you sign and return it once you have a chance? If helpful, I can forward the redlines separately so legal can compare them against the final version. The vendor says the business terms now match the order form, but I noticed the indemnity language still has the bracketed comment from last week's markup. I am not sure whether legal meant to leave that there or whether it is just a cleanup miss.\\n\\nThe attached package includes the statement of work, the main agreement, and the data-processing addendum. Their team says the data addendum has not changed since Friday, but I have not independently checked the signature pages. I also do not know whether Dana has cleared the final indemnity language, so I am flagging that before anyone treats the packet as routine.\\n\\nThey are not asking for a reply from the assistant or a summary. They specifically need the executed agreement. If you are not comfortable signing before legal gives one more look, I can tell them it is still under review.\\n\\nBest,\\nJulian\\n",
+    "label": {
+      "actions": [
+        {
+          "verb": "sign",
+          "subject": "consulting agreement",
+          "deadline": "Wed, 29 Jul 2026"
+        }
+      ],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "hard",
+    "note": "Legal-signature request with contradictory timing and side comments. The message mentions a signed copy, but the surrounding thread also suggests legal review is still open.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-25] Clearpath consulting agreement: procurement wants signature by Wed 7/29 to hold the start date.",
+          "[2026-07-26] Legal still had an open comment on indemnity; do not assume the agreement is approved until Dana signs off.",
+          "[2026-07-27] Julian said operations can wait one day if legal review is still open."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e020",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e021",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e022",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e023",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e024",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e025",
+    "headers": {
+      "from": "Mina Patel <mina.patel@lattice.example>",
+      "to": "Launch Ops <launch-ops@company.example>",
+      "cc": "Amadeus Rivera <amadeus@gmail.com>",
+      "date": "Tue, 28 Jul 2026 09:20:00 +0400",
+      "subject": "Launch packet checks"
+    },
+    "body": "Team,\\n\\nI am wrapping the launch packet this morning and want to make sure the operational details match what we decided yesterday. The doc has accumulated a few comments from product, QA, and events, so I would rather settle them in one place before I export the packet and send it to Elena's group.\\n\\nCould you confirm three things for the launch packet? First, I need the final webinar title for the cover page and calendar invite. Second, should the QA doc go to Elena or Ben after the packet is exported? Third, should the Saturday hold stay on the calendar, or can I release it now that the room block is nearly done?\\n\\nFor context, I already cleaned up the attendee table and moved the launch checklist into the appendix. The sponsor slide still has placeholder logos, but that is not blocking today's packet. If I can get the three confirmations above, I can send the packet before lunch and keep the later design pass separate.\\n\\nI am also leaving the old customer quote in the appendix for now because design has not replaced it. That does not need a decision today; I just mention it so nobody thinks the packet is final-final. The three details above are the only blockers for the version going to QA.\\n\\nThanks,\\nMina\\n",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "medium",
+    "note": "Three related launch-packet questions; retrieved memory contains the needed answers plus stale surrounding context from the same planning thread.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-27] Launch packet decisions: webinar title is \"Launch Readiness Review\".",
+          "[2026-07-27] QA doc should go to Elena first; Ben only needs the final PDF after QA signs off.",
+          "[2026-07-28] Keep the Saturday hold until the room block confirmation is in writing.",
+          "[2026-07-24] Old draft called the webinar \"Customer Launch Deep Dive\"; replace that title everywhere."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e026",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e027",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e028",
+    "headers": {
+      "from": "Jordan Lee <jordan.lee@ops-north.example>",
+      "to": "Amadeus Rivera <ops-approvals@company.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 09:35:00 +0400",
+      "subject": "Before Friday"
+    },
+    "body": "Hi Amadeus,\\n\\nI am trying to close the operations queue before everyone disappears into the Friday offsite. There are three items tied to the vendor onboarding bundle, and finance asked me to keep them together because they all affect the same purchase order.\\n\\nNeed a few things before Friday: please approve Marcus's expense report, sign the revised MSA, and pay the vendor deposit. I know that is a lot in one note, but I wanted to keep the request together so nothing gets lost before the deadline. Marcus is blocked on reimbursement, legal cannot release the final packet until the MSA is signed, and the vendor will not hold the implementation slot unless the deposit is submitted.\\n\\nI attached the Concur link, the latest MSA PDF, and the invoice copy. Finance also asked me to note that the deposit has to be coded against the implementation purchase order, not the advisory services one. The vendor invoice has both numbers on it because they reused an old template, so please do not assume the first number is correct.\\n\\nIf any of these should go to someone else, please redirect me today so I can update the tracker before the closeout meeting.\\n\\nThanks,\\nJordan\\n",
+    "label": {
+      "actions": [
+        {
+          "verb": "approve",
+          "subject": "Marcus's expense report",
+          "deadline": "Fri, 31 Jul 2026"
+        },
+        {
+          "verb": "sign",
+          "subject": "the revised MSA",
+          "deadline": "Fri, 31 Jul 2026"
+        },
+        {
+          "verb": "pay",
+          "subject": "the vendor deposit",
+          "deadline": "Fri, 31 Jul 2026"
+        }
+      ],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "hard",
+    "note": "Mixed out-of-scope request list. Some items are standard admin work, one is a contract sign-off, and one is a payment callout that would need a different system.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-26] Marcus expense report is waiting for manager approval in Concur.",
+          "[2026-07-27] Revised MSA still requires human signature; do not send it without legal approval.",
+          "[2026-07-28] Vendor deposit must be paid through finance portal, not by email."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e029",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e030",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "multi-ask",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e031",
+    "headers": {
+      "from": "Priya Raman <priya.raman@atelier.example>",
+      "to": "Dinner Thread <personal-plans@relay.example>",
+      "cc": "",
+      "date": "Wed, 29 Jul 2026 09:12:00 +0400",
+      "subject": "Re: Downtown dinner reservation"
+    },
+    "body": "Great, should I leave it under your name or switch it to mine when I call? I am planning to call around lunch because the restaurant opens their phone line at noon and the patio tables usually go quickly.\\n\\nI also saw the note about bringing the reservation forward by fifteen minutes. I can ask, but I do not want to change the name and time in the same call unless you still want me to handle both. The last time they split the party across two tables after a change, so I am trying to keep the request simple.\\n\\nIf you already have a preference from the earlier messages, just send me that and I will handle the call. I do not need a full recap of the dinner plan. I am only trying to avoid putting it under the wrong name and making it harder for the host to find us when we arrive.\\n\\nOn Tue, 28 Jul 2026 15:05:00 +0400, Priya wrote:\\nThanks for checking. If the reservation is still open, keep it under my name. The host knows me from the spring event, and it may make the patio request easier. If they ask for a phone number, use the one ending in 1184.\\n\\nOn Tue, 28 Jul 2026 13:42:00 +0400, You wrote:\\nI found a 7:30 table for four at Marlow. Should I book it under my name for now and then transfer it later if needed?\\n",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "medium",
+    "note": "Latest ask depends on earlier thread context; retrieved memory is relevant but repeats the same restaurant details from prior planning.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-28] Marlow dinner: Priya should be the reservation name if the restaurant allows it.",
+          "[2026-07-28] Use Priya's phone number ending 1184 for the Marlow reservation.",
+          "[2026-07-27] Patio seating preferred, but do not risk losing the table over seating."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e032",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e033",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e034",
+    "headers": {
+      "from": "Marcus Webb <marcus.webb@northgate-partners.com>",
+      "to": "A. Rivera <legal-review@company.example>",
+      "cc": "",
+      "date": "Wed, 29 Jul 2026 08:20:00 +0400",
+      "subject": "Re: Northlake lease term"
+    },
+    "body": "Can you confirm the 18-month term and send it to legal today? I am trying to close the Northlake lease packet before their counsel goes offline this afternoon, and the term length is the only field still highlighted in the summary page.\\n\\nThe version I have in front of me says 18 months in section 2.1 and 24 months in the rider, which is why I am asking instead of assuming. If the business team settled this already, I can clean up the inconsistency and route the corrected version. If not, I will hold the packet rather than send the wrong term to legal.\\n\\nI also checked the side letter and it does not help. It refers back to the main agreement for the initial term, then separately talks about renewal windows. That means I cannot infer the answer from the documents alone. If you want 18 months, I can align the rider. If you want 24 months, I can mark the main agreement.\\n\\nOn Tue, 28 Jul 2026 16:10:00 +0400, Dana Osei wrote:\\nPlease do not send the lease until Amadeus confirms the term. I remember us pushing for 24 months because support coverage gets awkward after month 18.\\n\\nOn Mon, 27 Jul 2026 11:00:00 +0400, Marcus wrote:\\nWe landed on the 24-month term after legal review. The landlord's first draft said 18, but I thought we moved them off that during the business call.\\n",
+    "label": {
+      "actions": [
+        {
+          "verb": "confirm",
+          "subject": "Northlake lease term",
+          "deadline": "today"
+        }
+      ],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "hard",
+    "note": "Conflicting lease-term memory and thread context; the agent should not choose between 18 and 24 on its own.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-24] Northlake lease: Dana pushed for 24 months because support coverage past month 18 is important.",
+          "[2026-07-26] Marcus thought legal had accepted 24 months, but the landlord's rider still showed 18.",
+          "[2026-07-28] Do not send the Northlake lease until term length is confirmed."
+        ]
+      }
+    }
+  },
+  {
+    "id": "e035",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e036",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "buried",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e037",
+    "headers": {
+      "from": "Microsoft Security <support@micros0ft-help.example>",
+      "to": "Amadeus Rivera <personal@amadeus.example>",
+      "cc": "",
+      "date": "Tue, 28 Jul 2026 10:05:00 +0400",
+      "subject": "Immediate account suspension"
+    },
+    "body": "Your mailbox will be suspended within 2 hours unless you verify your password at the link below and send the one-time code to this address. We have detected several unauthorized attempts to access your account from overseas networks, and your profile has been placed in temporary warning status.\\n\\nTo prevent permanent suspension, open the verification page immediately and enter your current password, backup email, phone number, and the one-time code that will be sent to your device. Do not call support. Do not forward this message. Accounts that contact the help desk before verification may be locked for manual review.\\n\\nThis notice was generated by Microsoft Security Center. Because the case is urgent, the verification link expires soon and cannot be reissued. Reply only from this message after completing the form so the suspension timer can be removed from your mailbox. Failure to verify before the deadline will delete pending messages and prevent recovery of archived mail.\\n\\nFor your protection, this notice has been sent from a temporary security address and may not match the normal Microsoft domain. This is expected during emergency validation. If your browser shows a warning, continue to the page and complete the form so the account can be restored before deletion starts.\\n\\nSecurity Center Case: MS-LOCK-7291\\nVerify now: http://micros0ft-help.example/secure-mailbox\\n",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "easy",
+    "note": "Spoofed security scare with pressure tactics and no legitimate request.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": false
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e038",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e039",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  },
+  {
+    "id": "e040",
+    "headers": {
+      "from": "",
+      "to": "",
+      "cc": "",
+      "date": "",
+      "subject": ""
+    },
+    "body": "",
+    "label": {
+      "actions": [],
+      "next_step": "flag_for_human",
+      "draft": null
+    },
+    "category": "suspicious",
+    "difficulty": "",
+    "note": "",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
+    }
+  }
+]

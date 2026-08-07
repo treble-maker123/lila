@@ -96,8 +96,10 @@ TOOLS: list[dict[str, Any]] = [
             # being over-selected on emails that genuinely need action.
             "description": (
                 "Take no action on this email and leave it in the inbox. Use when the "
-                "email needs nothing from you — promotional, fyi, automated, or you are "
-                "only CC'd. Do not use when you are merely unsure; flag those instead."
+                "email needs nothing from you, including informational mail that does "
+                "not require a response or follow-up. Use for promotional, fyi, "
+                "automated, or CC-only emails when nothing needs to be done. Do not use "
+                "when you are merely unsure; flag those instead."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },

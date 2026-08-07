@@ -37,6 +37,9 @@ or `label.next_step` values.
 - Write each item as a realistic, self-contained email or short thread with one
   clear scenario, concrete sender/recipient context, and a specific date that
   makes sense relative to `CURRENT_TIME`.
+- Vary `from` and `to` instead of reusing the same pair. Bias bodies toward
+  medium (200-400 words) or long (500+ words); promotional mail can include the
+  usual long footer and unsubscribe boilerplate.
 
 - [This doc](seed/action_required-awaiting_payment.md)
   - Note: An easy example of action_required,
@@ -76,9 +79,11 @@ or `label.next_step` values.
   spoofed sender, and no legitimate action item. Route to `flag_for_human`.
 - Populate `tool_returns` explicitly for every email. Default to known sender,
   available calendar, and `{"notes": []}` unless the email is intentionally about
-  sender trust, scheduling, or hidden context. Use `get_note` only when it changes
-  the routing decision; it takes no arguments and returns every relevant note, so
-  add unrelated notes as noise rather than expecting the agent to pick a key.
+  sender trust, scheduling, or hidden context. Promotional mail is usually
+  `check_unknown_sender.known = false`, and `get_note` should carry prior context
+  only when it changes the route.
+- Treat `get_note` as retrieved memory: notes should be relevant to the scenario,
+  but may include stale, adjacent, or contradictory details that must be reconciled.
 - `no_action` means the email needs nothing. When a case is genuinely ambiguous,
   label it `flag_for_human` — surfacing beats burying, and it keeps `no_action`
   from meaning "couldn't tell".

@@ -21,6 +21,7 @@ import ollama
 from pydantic import BaseModel
 
 from src.mcp_server import READ_TOOLS, ROUTE_TOOLS, MockMCPServer, UnknownToolError, tools_for
+from src.memory import KVProfile
 from src.models import (
     DEFAULT_DRAFT,
     Action,
@@ -60,6 +61,7 @@ def _chat_tools(
     model: str,
     temperature: float,
     think: bool,
+    num_ctx: int,
     prompt: str,
     tool_names: set[str],
 ) -> _NodeResponse:
@@ -70,7 +72,7 @@ def _chat_tools(
             messages=[{"role": "user", "content": prompt}],
             tools=tools_for(tool_names),
             think=think,
-            options={"temperature": temperature},
+            options={"temperature": temperature, "num_ctx": num_ctx},
         )
     except Exception as exc:
         raise _ProviderError(f"{type(exc).__name__}: {exc}") from exc
@@ -88,12 +90,15 @@ def _chat_tools(
 
 
 def run_email(
-    email: Email, model: str, ollama_url: str, temperature: float, think: bool
+    email: Email, model: str, ollama_url: str, temperature: float, think: bool, num_ctx: int
 ) -> InferenceResult:
     client = ollama.Client(host=ollama_url)
     server = MockMCPServer(email)
     prompt_tokens: list[int] = []
     tokens_out = 0
+    # KV high-water mark. Nodes are independent prompts, so the peak is the largest
+    # single node, not the sum — that is the whole memory argument for the graph.
+    peak_context_tokens = 0
     nodes: list[NodeDebug] = []
     warnings: list[RunWarning] = []
 
@@ -105,6 +110,7 @@ def run_email(
             tokens_in_cumulative=sum(prompt_tokens),
             tokens_in_unique=sum(prompt_tokens),
             tokens_out=tokens_out,
+            peak_context_tokens=peak_context_tokens,
             error=error,
             warnings=warnings,
             invocations=server.invocations,
@@ -126,11 +132,14 @@ def run_email(
         "gather context. Call nothing if you need nothing."
     )
     try:
-        gathered = _chat_tools(client, model, temperature, think, gather_prompt, READ_TOOLS)
+        gathered = _chat_tools(
+            client, model, temperature, think, num_ctx, gather_prompt, READ_TOOLS
+        )
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"gather_context: {exc}"))
     prompt_tokens.append(gathered.tokens_in)
     tokens_out += gathered.tokens_out
+    peak_context_tokens = max(peak_context_tokens, gathered.tokens_in + gathered.tokens_out)
 
     observations: list[dict[str, Any]] = []
     for call in gathered.calls:
@@ -170,11 +179,14 @@ def run_email(
         f"\nContext you gathered:\n{obs_text}"
     )
     try:
-        decided = _chat_tools(client, model, temperature, think, decide_prompt, ROUTE_TOOLS)
+        decided = _chat_tools(
+            client, model, temperature, think, num_ctx, decide_prompt, ROUTE_TOOLS
+        )
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"decide: {exc}"))
     prompt_tokens.append(decided.tokens_in)
     tokens_out += decided.tokens_out
+    peak_context_tokens = max(peak_context_tokens, decided.tokens_in + decided.tokens_out)
 
     draft: str | None = None
     actions: list[Action] = []
@@ -232,6 +244,7 @@ def run_email(
         # deduplicate: unique == cumulative.
         tokens_in_unique=sum(prompt_tokens),
         tokens_out=tokens_out,
+        peak_context_tokens=peak_context_tokens,
         warnings=warnings,
         invocations=server.invocations,
         debug=Debug(nodes=nodes),
@@ -244,12 +257,17 @@ def run(
     ollama_url: str,
     temperature: float,
     think: bool,
+    num_ctx: int,
+    profile: KVProfile | None,
     on_result: Callable[[RunResult], None] | None = None,
 ) -> list[RunResult]:
     results: list[RunResult] = []
     for email in emails:
+        if not email.body.strip():
+            print(f"[setup2] {email.id}: skipped empty email")
+            continue
         t0 = time.monotonic()
-        inferred = run_email(email, model, ollama_url, temperature, think)
+        inferred = run_email(email, model, ollama_url, temperature, think, num_ctx)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         if inferred.error:
             print(f"[setup2] {email.id}: [{inferred.error.kind}]")
@@ -263,6 +281,8 @@ def run(
                 tokens_out=inferred.tokens_out,
                 wall_clock_ms=elapsed_ms,
                 prompt_tokens=inferred.prompt_tokens,
+                peak_context_tokens=inferred.peak_context_tokens,
+                memory=profile.footprint(inferred.peak_context_tokens) if profile else None,
             ),
             error=inferred.error,
             warnings=inferred.warnings,

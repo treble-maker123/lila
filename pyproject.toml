@@ -5,11 +5,12 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["experiments/email_organization"]
+members = ["experiments/loop_workflow_comparison"]
 
 [dependency-groups]
 dev = [
     "black>=24.0",
+    "marimo>=0.9",
     "ruff>=0.5",
 ]
 

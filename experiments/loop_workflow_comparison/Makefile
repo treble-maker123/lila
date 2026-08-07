@@ -1,7 +1,7 @@
 IMAGE := email-org-harness
 PWD   := $(shell pwd)
 
-.PHONY: build run run-smoke shell generate-individual deanonymize
+.PHONY: build run run-smoke run-individual score notebook shell generate-individual deanonymize
 
 build:
 	docker build -t $(IMAGE) .
@@ -39,6 +39,31 @@ run-smoke: build
 			--setup 1 --setup 2 \
 			--runs 2 --temperature 0.0 \
 			--data datasets/emails_smoke.json
+
+# Run the individual E-mail dataset
+# make run-individual
+run-individual: build
+	docker run --rm \
+		-v $(PWD):/workspace \
+		-e OLLAMA_URL=http://host.docker.internal:11434 \
+		$(IMAGE) python -m src.main run \
+			--setup 1 --setup 2 \
+			--runs 1 --temperature 0.0 \
+			--data datasets/emails_individual.json
+
+# Re-score a finished results file against its labels; no inference. The dataset is
+# read from the results filename unless ARGS overrides it with --data.
+# make score RESULTS=results/emails_smoke_....json
+score: build
+	docker run --rm \
+		-v $(PWD):/workspace \
+		$(IMAGE) python -m src.main score --results $(RESULTS) $(ARGS)
+
+# Open the results notebook. Runs on the host rather than in Docker: marimo serves a
+# browser UI, and it reads the same results/ JSON the containerized runs write.
+# make notebook
+notebook:
+	uv run marimo edit --watch results/emails_individual.py
 
 shell:
 	docker run --rm -it \

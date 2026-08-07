@@ -10,7 +10,6 @@
     },
     "body": "Hi,\n\nPlease review and sign the attached Q3 budget approval document by this Friday EOD. Finance needs it to process vendor payments.\n\nLet me know if you have questions.\n\nThanks,\nSarah",
     "label": {
-      "classification": "action_required",
       "actions": [
         {
           "verb": "sign",
@@ -25,9 +24,15 @@
     "difficulty": "easy",
     "note": "",
     "tool_returns": {
-      "check_calendar_available": { "available": true },
-      "check_unknown_sender": { "known": true },
-      "get_note": { "note": null }
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": []
+      }
     }
   },
   {
@@ -37,22 +42,30 @@
       "to": "you@company.com",
       "cc": "",
       "date": "Tue, 28 Jul 2026 14:03:00 +0100",
-      "subject": "50% off this weekend only — flash sale!"
+      "subject": "50% off this weekend only \u2014 flash sale!"
     },
     "body": "Don't miss our biggest sale of the year! Everything in store is 50% off this weekend only. Shop now at example.com/sale\n\nUnsubscribe | View in browser",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
     },
     "category": "promotional",
     "difficulty": "easy",
-    "note": "",
+    "note": "check_unknown_sender returns false because a store is genuinely not a contact. On its own the model reads that as suspicious and escalates; the standing preference in get_note is what makes no_action the grounded answer rather than a guess.",
     "tool_returns": {
-      "check_calendar_available": { "available": true },
-      "check_unknown_sender": { "known": false },
-      "get_note": { "note": null }
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": false
+      },
+      "get_note": {
+        "notes": [
+          "The user does not want promotional or marketing email surfaced. Leave it in the inbox and take no action, even from senders who are not contacts.",
+          "The user prefers meetings after 10am."
+        ]
+      }
     }
   }
 ]

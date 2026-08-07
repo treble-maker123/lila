@@ -6,12 +6,13 @@ from src.models import MetricsSummary, RunResult
 
 
 def summarize(results: list[RunResult]) -> MetricsSummary:
-    total = len(results)
     return MetricsSummary(
-        total=total,
-        tokens_in=sum(r.metrics.tokens_in for r in results),
+        total=len(results),
+        tokens_in_cumulative=sum(r.metrics.tokens_in_cumulative for r in results),
+        tokens_in_unique=sum(r.metrics.tokens_in_unique for r in results),
         tokens_out=sum(r.metrics.tokens_out for r in results),
         wall_clock_ms=sum(r.metrics.wall_clock_ms for r in results),
+        errors=sum(1 for r in results if r.error is not None),
     )
 
 

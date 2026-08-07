@@ -27,7 +27,6 @@ run: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		-e OPENROUTER_API_KEY=$(OPENROUTER_API_KEY) \
 		$(IMAGE) python -m src.main run $(ARGS)
 
 # Quick local smoke test: setups 1 & 2 on the smoke dataset, 2 runs, temp 0.0.
@@ -45,5 +44,4 @@ shell:
 	docker run --rm -it \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		-e OPENROUTER_API_KEY=$(OPENROUTER_API_KEY) \
 		$(IMAGE) /bin/bash

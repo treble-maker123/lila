@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 
 import ollama
 
-from src.mcp_server import TOOLS, MockMCPServer
+from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError
 from src.models import (
     DEFAULT_DRAFT,
-    DEFAULT_NEXT_STEP,
     Action,
     Debug,
     Email,
@@ -18,7 +18,9 @@ from src.models import (
     Label,
     LoopDebug,
     Metrics,
+    RunError,
     RunResult,
+    RunWarning,
 )
 from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM
 
@@ -26,6 +28,46 @@ MAX_STEPS = 12
 
 # Generic agent loop + the triage skill (the declarative peer of setup 2's graph).
 _SYSTEM = f"{GENERIC_AGENT_SYSTEM}\n\n{EMAIL_TRIAGE_SKILL}"
+
+
+def parse_actions(raw: object, warnings: list[RunWarning]) -> list[Action]:
+    """Parse model-supplied action items, dropping the ones that don't fit the schema.
+
+    Deliberately lenient: a malformed action item degrades the actions list but does
+    not invalidate the routing decision, which is the primary metric. Each drop is
+    recorded as a warning so it stays visible instead of being silently swallowed.
+    """
+    if not isinstance(raw, list):
+        if raw not in (None, ""):
+            warnings.append(
+                RunWarning(kind="action_parse_error", detail=f"actions not a list: {raw!r}")
+            )
+        return []
+    actions: list[Action] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            warnings.append(
+                RunWarning(kind="action_parse_error", detail=f"action not an object: {item!r}")
+            )
+            continue
+        verb = item.get("verb")
+        subject = item.get("subject")
+        if not isinstance(verb, str) or not isinstance(subject, str):
+            warnings.append(
+                RunWarning(
+                    kind="action_parse_error", detail=f"action missing verb/subject: {item!r}"
+                )
+            )
+            continue
+        deadline = item.get("deadline")
+        actions.append(
+            Action(
+                verb=verb,
+                subject=subject,
+                deadline=deadline if isinstance(deadline, str) else None,
+            )
+        )
+    return actions
 
 
 def run_email(
@@ -39,21 +81,31 @@ def run_email(
     ]
 
     state: dict[str, object] = {"actions": [], "next_step": None, "draft": None}
-    tokens_in = tokens_out = 0
+    prompt_tokens: list[int] = []
+    tokens_out = 0
     steps = 0
     loops: list[LoopDebug] = []
+    warnings: list[RunWarning] = []
+    error: RunError | None = None
+    fetched_email = False
+    # True only if the loop ran out of steps while the model still wanted to act.
+    exhausted = False
 
     for step in range(MAX_STEPS):
         steps = step + 1
-        resp = client.chat(
-            model=model,
-            messages=messages,
-            tools=TOOLS,
-            think=think,
-            options={"temperature": temperature},
-        )
+        try:
+            resp = client.chat(
+                model=model,
+                messages=messages,
+                tools=TOOLS,
+                think=think,
+                options={"temperature": temperature},
+            )
+        except Exception as exc:  # transport/decode/timeout from the backend
+            error = RunError(kind="provider_error", detail=f"{type(exc).__name__}: {exc}")
+            break
         msg = resp.message
-        tokens_in += resp.prompt_eval_count or 0
+        prompt_tokens.append(resp.prompt_eval_count or 0)
         tokens_out += resp.eval_count or 0
         loops.append(
             LoopDebug(
@@ -64,6 +116,9 @@ def run_email(
         )
         messages.append(msg.model_dump())
 
+        # No tool call means the model stopped talking. Since no_action is now an
+        # explicit tool, stopping without routing is no longer how no-action is
+        # expressed — it is a failure to decide (see no_route_called below).
         if not msg.tool_calls:
             break
 
@@ -75,52 +130,102 @@ def run_email(
                 state["next_step"] = "reply"
                 state["draft"] = args.get("message")
                 done = True
+            elif name == "no_action":
+                state["next_step"] = "no_action"
+                done = True
             elif name == "flag_for_human":
                 state["next_step"] = "flag_for_human"
-                state["actions"] = args.get("actions", [])
+                state["actions"] = parse_actions(args.get("actions"), warnings)
                 done = True
-            result = server.handle(name, args)
+            try:
+                result = server.handle(name, args)
+            except UnknownToolError as exc:
+                error = RunError(kind="unknown_tool", detail=str(exc))
+                done = True
+                break
+            if name == "get_new_email":
+                fetched_email = True
             messages.append({"role": "tool", "content": json.dumps(result), "name": name})
         # reply / flag_for_human are terminal routing decisions.
         if done:
             break
+    else:
+        # Fell out of the loop still holding an unserviced tool call.
+        exhausted = True
+
+    # Resolve the route. Order matters: a real failure must never be reported as a
+    # deliberate no_action, because no_action is a correct answer for ~22% of the
+    # dataset and would otherwise earn credit for flailing.
+    if error is not None:
+        next_step = "error"
+    elif exhausted:
+        error = RunError(
+            kind="max_steps_exhausted", detail=f"still calling tools after {MAX_STEPS} steps"
+        )
+        next_step = "error"
+    elif state["next_step"] is not None:
+        next_step = str(state["next_step"])
+    elif not fetched_email:
+        # Stopped before even reading the email; it cannot have decided anything.
+        error = RunError(kind="no_email_fetched", detail="terminated without calling get_new_email")
+        next_step = "error"
+    else:
+        error = RunError(kind="no_route_called", detail="stopped without calling a routing tool")
+        next_step = "error"
 
     label = Label(
-        actions=[Action(**a) for a in state["actions"]],  # type: ignore[arg-type]
-        next_step=str(state["next_step"] or DEFAULT_NEXT_STEP),
-        draft=str(state["draft"]) if state["draft"] else DEFAULT_DRAFT,
+        actions=state["actions"] if next_step == "flag_for_human" else [],  # type: ignore[arg-type]
+        next_step=next_step,  # type: ignore[arg-type]
+        draft=str(state["draft"]) if next_step == "reply" and state["draft"] else DEFAULT_DRAFT,
     )
     return InferenceResult(
         label=label,
-        tokens_in=tokens_in,
+        prompt_tokens=prompt_tokens,
+        tokens_in_cumulative=sum(prompt_tokens),
+        # The message list only ever grows, so every earlier prompt is a prefix of
+        # the last one and the final prompt is the count of distinct input tokens.
+        tokens_in_unique=prompt_tokens[-1] if prompt_tokens else 0,
         tokens_out=tokens_out,
         steps=steps,
+        error=error,
+        warnings=warnings,
         invocations=server.invocations,
         debug=Debug(loops=loops),
     )
 
 
 def run(
-    emails: list[Email], model: str, ollama_url: str, temperature: float, think: bool
+    emails: list[Email],
+    model: str,
+    ollama_url: str,
+    temperature: float,
+    think: bool,
+    on_result: Callable[[RunResult], None] | None = None,
 ) -> list[RunResult]:
-    results = []
+    results: list[RunResult] = []
     for email in emails:
         t0 = time.monotonic()
         inferred = run_email(email, model, ollama_url, temperature, think)
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        print(f"[setup1] {email.id}: {inferred.steps} ReAct loop iteration(s)")
-        results.append(
-            RunResult(
-                setup=1,
-                email_id=email.id,
-                predicted=inferred.label,
-                metrics=Metrics(
-                    tokens_in=inferred.tokens_in,
-                    tokens_out=inferred.tokens_out,
-                    wall_clock_ms=elapsed_ms,
-                    steps=inferred.steps,
-                ),
-                debug=inferred.debug,
-            )
+        suffix = f" [{inferred.error.kind}]" if inferred.error else ""
+        print(f"[setup1] {email.id}: {inferred.steps} ReAct loop iteration(s){suffix}")
+        result = RunResult(
+            setup=1,
+            email_id=email.id,
+            predicted=inferred.label,
+            metrics=Metrics(
+                tokens_in_cumulative=inferred.tokens_in_cumulative,
+                tokens_in_unique=inferred.tokens_in_unique,
+                tokens_out=inferred.tokens_out,
+                wall_clock_ms=elapsed_ms,
+                steps=inferred.steps,
+                prompt_tokens=inferred.prompt_tokens,
+            ),
+            error=inferred.error,
+            warnings=inferred.warnings,
+            debug=inferred.debug,
         )
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
     return results

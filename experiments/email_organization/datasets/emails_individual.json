@@ -10,7 +10,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -26,7 +25,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -41,7 +40,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -57,7 +55,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -72,7 +70,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -88,7 +85,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -103,7 +100,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -119,7 +115,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -134,7 +130,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -150,7 +145,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -165,7 +160,6 @@
     },
     "body": "",
     "label": {
-      "classification": "promotional",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -181,7 +175,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -196,7 +190,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -212,7 +205,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -227,7 +220,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -243,7 +235,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -258,7 +250,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "no_action",
       "draft": null
@@ -274,7 +265,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -289,7 +280,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -305,7 +295,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -320,7 +310,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -336,7 +325,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -351,7 +340,6 @@
     },
     "body": "",
     "label": {
-      "classification": "fyi",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -367,7 +355,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -382,7 +370,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -398,7 +385,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -413,7 +400,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -429,7 +415,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -444,7 +430,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -460,7 +445,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -475,7 +460,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -491,7 +475,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -506,7 +490,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -522,7 +505,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -537,7 +520,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -553,7 +535,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -568,7 +550,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -584,7 +565,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -599,7 +580,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -615,7 +595,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -630,7 +610,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -646,7 +625,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -661,7 +640,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -677,7 +655,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -692,7 +670,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -708,7 +685,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -723,7 +700,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -739,7 +715,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -754,7 +730,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -770,7 +745,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -785,7 +760,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -801,7 +775,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -816,7 +790,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -832,7 +805,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -847,7 +820,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -863,7 +835,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -878,7 +850,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -894,7 +865,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -909,7 +880,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -925,7 +895,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -940,7 +910,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -956,7 +925,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -971,7 +940,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -987,7 +955,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1002,7 +970,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "reply",
       "draft": null
@@ -1018,7 +985,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1033,7 +1000,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1049,7 +1015,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1064,7 +1030,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1080,7 +1045,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1095,7 +1060,6 @@
     },
     "body": "",
     "label": {
-      "classification": "action_required",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1111,7 +1075,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1126,7 +1090,6 @@
     },
     "body": "",
     "label": {
-      "classification": "suspicious",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1142,7 +1105,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1157,7 +1120,6 @@
     },
     "body": "",
     "label": {
-      "classification": "suspicious",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1173,7 +1135,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1188,7 +1150,6 @@
     },
     "body": "",
     "label": {
-      "classification": "suspicious",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1204,7 +1165,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   },
@@ -1219,7 +1180,6 @@
     },
     "body": "",
     "label": {
-      "classification": "suspicious",
       "actions": [],
       "next_step": "flag_for_human",
       "draft": null
@@ -1235,7 +1195,7 @@
         "known": true
       },
       "get_note": {
-        "note": null
+        "notes": []
       }
     }
   }

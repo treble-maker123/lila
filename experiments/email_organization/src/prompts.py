@@ -32,9 +32,10 @@ ROUTING_POLICY = (
     "- reply: you have enough information to answer the sender directly.\n"
     "- flag_for_human: it needs doing but you can't - out of scope (action in another "
     "system, e.g. paying) or missing information. Provide the action items that need "
-    "attention (verb, subject, optional deadline).\n"
-    "- no action: the email is promotional, fyi, automated, or you're only CC'd - "
-    "nothing to do.\n"
+    "attention (verb, subject, optional deadline). This is also the default when you "
+    "are unsure - surfacing an email is safer than burying it.\n"
+    "- no_action: the email is promotional, fyi, automated, or you're only CC'd - "
+    "nothing to do. Use only when you are confident nothing is needed.\n"
 )
 
 # The email-triage procedure, expressed as a skill the agent follows. This is the
@@ -45,13 +46,13 @@ EMAIL_TRIAGE_SKILL = (
     "# Skill: email triage\n"
     "Triage the user's inbox one email at a time.\n"
     "1. Call get_new_email to fetch the email to process.\n"
-    "2. Gather any context you need to decide: check_calendar_available (scheduling "
-    "asks), check_unknown_sender (to spot suspicious senders), get_note (to answer "
-    "from the user's notes).\n"
+    # Deliberately does not enumerate the read tools: their schemas are already
+    # passed to the model, and the graph's gather node doesn't enumerate them either.
+    "2. Gather any context you need to decide.\n"
     "3. Then route the email using these definitions:\n"
     f"{ROUTING_POLICY}"
-    "Act on the route: call reply(message) or flag_for_human(actions); for no action, "
-    "stop without calling either.\n"
+    "Act on the route by calling exactly one of reply(message), flag_for_human(actions) "
+    "or no_action().\n"
 )
 
 

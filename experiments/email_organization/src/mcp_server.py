@@ -37,13 +37,18 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "check_unknown_sender",
+            # Deliberately neutral: saying "use to spot suspicious senders" told the
+            # model that not-a-contact means suspicious, which is false for
+            # promotional mail. Let the model infer what unknown means from context.
             "description": (
-                "Check whether an email sender is a known contact. Use to spot suspicious "
-                'senders. Returns {"known": <bool>}.'
+                "Check whether an email sender is in the user's contacts. "
+                'Returns {"known": <bool>}.'
             ),
             "parameters": {
                 "type": "object",
-                "properties": {"sender": {"type": "string"}},
+                "properties": {
+                    "sender": {"type": "string", "description": "The sender's email address."}
+                },
                 "required": ["sender"],
             },
         },
@@ -52,16 +57,16 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_note",
+            # Takes no arguments: retrieval is out of scope for this experiment, so the
+            # store is assumed to always surface the notes relevant to this email. The
+            # fixture may add unrelated notes as noise — reading past those is the
+            # skill being exercised, not finding the right one.
             "description": (
-                "Look up a fact in the user's personal notes (preferences, PTO, policies, "
-                'etc.) to answer a question directly. Returns {"note": <text, or null if '
-                "there is no such note>}."
+                "Retrieve the user's standing notes and preferences — how they want kinds "
+                "of email handled, policies, personal facts. Returns "
+                '{"notes": [<text>, ...]}, which may include unrelated notes.'
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {"key": {"type": "string"}},
-                "required": ["key"],
-            },
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
@@ -77,6 +82,24 @@ TOOLS: list[dict[str, Any]] = [
                 "properties": {"message": {"type": "string"}},
                 "required": ["message"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "no_action",
+            # Explicit rather than "absence of a routing call". A single-shot node with
+            # only reply/flag_for_human in front of it cannot express no-action by
+            # silence — the model reliably picks a tool — and in the loop, silence was
+            # indistinguishable from wandering off. Note this is the only routing tool
+            # taking no arguments, so it is also the cheapest to emit; watch for it
+            # being over-selected on emails that genuinely need action.
+            "description": (
+                "Take no action on this email and leave it in the inbox. Use when the "
+                "email needs nothing from you — promotional, fyi, automated, or you are "
+                "only CC'd. Do not use when you are merely unsure; flag those instead."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
     {
@@ -111,19 +134,40 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-# Tools that record the model's answer rather than query the environment. They
-# acknowledge with {"ok": True}; every other tool returns the email's fixture.
-REPORT_TOOLS = {"reply", "flag_for_human"}
+# The routing decision: these record the model's answer rather than query the
+# environment, so they acknowledge with {"ok": True} while every other tool returns
+# the email's fixture. Exactly one is expected per email; calling none is an error,
+# not a silent no_action.
+ROUTE_TOOLS = {"reply", "no_action", "flag_for_human"}
+
+READ_TOOLS = {"check_calendar_available", "check_unknown_sender", "get_note"}
+
+
+def tools_for(names: set[str]) -> list[dict[str, Any]]:
+    """The subset of TOOLS with the given names, for exposing a per-node tool set.
+
+    The graph setup offers only the tools its current node may use, so both setups
+    hand the model the same schemas — the difference between them is which tools are
+    reachable when, not how the model is asked to call them.
+    """
+    return [t for t in TOOLS if t["function"]["name"] in names]
+
 
 # The mock server is intentionally strict: it never defaults a read tool. A call
-# with no explicit fixture fails loudly in handle() below instead of being silently
+# with no explicit fixture raises UnknownToolError below instead of being silently
 # answered (which could hide bugs), so every value the environment returns must be
 # explicit in the data. The canonical "nothing special" shapes used to scaffold
 # Email.tool_returns are a data-generation concern and live there, not here (see
 # datasets/scripts/generate_individual.py).
 
-# Fallback for a tool with neither a fixture nor a documented default.
-NO_DATA: dict[str, Any] = {"found": False}
+
+class UnknownToolError(Exception):
+    """Raised for a tool call the fixtures cannot answer — an unknown tool name or a
+    read tool with no entry in Email.tool_returns.
+
+    Setups catch this and fail the single email with ErrorKind "unknown_tool" rather
+    than letting it abort the whole run.
+    """
 
 
 class MockMCPServer:
@@ -143,14 +187,12 @@ class MockMCPServer:
         )
         if name == "get_new_email":
             return {"email": render_email(self._email)}
-        if name in REPORT_TOOLS:
+        if name in ROUTE_TOOLS:
             return {"ok": True}
         if name in self._tool_returns:
             return self._tool_returns[name]
 
-        # TODO: this will fail the whole run if not handled up stream, okay for now
-        # if run takes too long, handle upstream to skip the data point
-        raise ValueError(f"Unexpected tool call: {name} with args {args}")
+        raise UnknownToolError(f"Unexpected tool call: {name} with args {args}")
 
     def reset(self) -> None:
         self._invocations.clear()
@@ -158,7 +200,3 @@ class MockMCPServer:
     @property
     def invocations(self) -> list[ToolInvocation]:
         return list(self._invocations)
-
-    def verify_sequence(self, expected: list[str]) -> bool:
-        actual = [inv.name for inv in self._invocations]
-        return actual == expected

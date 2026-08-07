@@ -59,8 +59,10 @@ or `label.next_step` values.
 
 #### Generation Rules
 
-- For `promotional` and `fyi` items, keep them non-actionable: no request, no
-  hidden ask, and `next_step = no_action`.
+- For `promotional` items, keep them non-actionable: no request, no hidden ask,
+  and `next_step = no_action`.
+- For `fyi` items, half are non-actionable (`no_action`); the other half end on a
+  question the agent can answer from the email or `get_note`, routing `reply`.
 - For `single-ask` items, include exactly one ask. If the answer is available in
   the email or `get_note`, route `reply`; if the request is missing context,
   contradictory, or out of scope, route `flag_for_human`.
@@ -73,9 +75,13 @@ or `label.next_step` values.
 - For `suspicious` items, use scam/phishing/extortion language, an unknown or
   spoofed sender, and no legitimate action item. Route to `flag_for_human`.
 - Populate `tool_returns` explicitly for every email. Default to known sender,
-  available calendar, and no note unless the email is intentionally about sender
-  trust, scheduling, or hidden context. Use `get_note` only when it changes the
-  routing decision.
+  available calendar, and `{"notes": []}` unless the email is intentionally about
+  sender trust, scheduling, or hidden context. Use `get_note` only when it changes
+  the routing decision; it takes no arguments and returns every relevant note, so
+  add unrelated notes as noise rather than expecting the agent to pick a key.
+- `no_action` means the email needs nothing. When a case is genuinely ambiguous,
+  label it `flag_for_human` — surfacing beats burying, and it keeps `no_action`
+  from meaning "couldn't tell".
 - Difficulty rubric:
   - `easy` for direct cases with an obvious answer,
   - `medium` for one lookup or mild ambiguity,

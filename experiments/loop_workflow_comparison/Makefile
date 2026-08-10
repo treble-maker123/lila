@@ -6,6 +6,7 @@ PWD   := $(shell pwd)
 build:
 	docker build -t $(IMAGE) .
 
+
 # Regenerate datasets/emails_individual.json scaffolding (labels only; empty
 # headers/body/actions/draft/difficulty). See datasets/EMAIL_GUIDELINE.md.
 # make generate-individual
@@ -21,6 +22,7 @@ deanonymize: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		$(IMAGE) python datasets/scripts/deanonymize.py $(SEED)
+
 
 # make run ARGS="--setup 1 --runs 2 --temperature 0.0"
 run: build
@@ -48,8 +50,10 @@ run-individual: build
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
 		$(IMAGE) python -m src.main run \
 			--setup 1 --setup 2 \
-			--runs 1 --temperature 0.0 \
+			--runs 5 --temperature 0.6 \
 			--data datasets/emails_individual.json
+
+
 
 # Re-score a finished results file against its labels; no inference. The dataset is
 # read from the results filename unless ARGS overrides it with --data.
@@ -59,11 +63,16 @@ score: build
 		-v $(PWD):/workspace \
 		$(IMAGE) python -m src.main score --results $(RESULTS) $(ARGS)
 
-# Open the results notebook. Runs on the host rather than in Docker: marimo serves a
-# browser UI, and it reads the same results/ JSON the containerized runs write.
+# Start the marimo server at the experiment root, so both the results notebook
+# (results/visualize_emails_individual.py) and the dataset notebook
+# (datasets/visualize_emails_individual.py) can be opened from one browser UI.
+# Runs on the host rather than in Docker: marimo serves a browser UI, and it reads
+# the same results/ JSON the containerized runs write.
 # make notebook
 notebook:
-	uv run marimo edit --watch results/emails_individual.py
+	uv run marimo edit --watch .
+
+
 
 shell:
 	docker run --rm -it \

@@ -2,19 +2,19 @@
   {
     "id": "e001",
     "headers": {
-      "from": "Sarah Nguyen <s.nguyen@company.com>",
-      "to": "you@company.com",
+      "from": "Sarah Nguyen <sarah.nguyen@info4days.edu>",
+      "to": "Shannon C. <shannon@info4days.edu>",
       "cc": "",
-      "date": "Mon, 27 Jul 2026 08:15:00 +0100",
+      "date": "Mon, 27 Jul 2026 08:15:00 -0400",
       "subject": "Action required: sign Q3 budget approval by Friday"
     },
-    "body": "Hi,\n\nPlease review and sign the attached Q3 budget approval document by this Friday EOD. Finance needs it to process vendor payments.\n\nLet me know if you have questions.\n\nThanks,\nSarah",
+    "body": "Hi Shannon,\n\nPlease review and sign the attached Q3 budget approval document by Friday, 31 July end of day. Finance needs it to process vendor payments.\n\nThe signature has to happen in the finance system; replying here does not register it.\n\nLet me know if you have questions.\n\nThanks,\nSarah",
     "label": {
       "actions": [
         {
           "verb": "sign",
           "subject": "Q3 budget approval document",
-          "deadline": "Friday EOD"
+          "deadline": "Fri, 31 Jul 2026 EOD"
         }
       ],
       "next_step": "flag_for_human",
@@ -22,7 +22,7 @@
     },
     "category": "single-ask",
     "difficulty": "easy",
-    "note": "Promotional mail with no action item. Even though the sender is not a contact, the correct route is still no_action because the email only announces a sale and does not ask the user to do anything.",
+    "note": "Signature request the agent cannot perform: the action lives in the finance system and no tool exists for it. Exercises the flag_for_human path with exactly one action carrying a deadline.",
     "tool_returns": {
       "check_calendar_available": {
         "available": true
@@ -39,10 +39,10 @@
     "id": "e002",
     "headers": {
       "from": "Example Store <deals@example.com>",
-      "to": "you@company.com",
+      "to": "Shannon C. <shannon@info4days.edu>",
       "cc": "",
-      "date": "Tue, 28 Jul 2026 14:03:00 +0100",
-      "subject": "50% off this weekend only \u2014 flash sale!"
+      "date": "Tue, 28 Jul 2026 14:03:00 -0400",
+      "subject": "50% off this weekend only — flash sale!"
     },
     "body": "Don't miss our biggest sale of the year! Everything in store is 50% off this weekend only. Shop now at example.com/sale\n\nUnsubscribe | View in browser",
     "label": {
@@ -52,7 +52,7 @@
     },
     "category": "promotional",
     "difficulty": "easy",
-    "note": "",
+    "note": "Promotional mail with no action item. Even though the sender is not a contact, the correct route is no_action because the email only announces a sale and does not ask the user to do anything. Exercises the no_action path and the empty action list.",
     "tool_returns": {
       "check_calendar_available": {
         "available": true
@@ -62,6 +62,39 @@
       },
       "get_note": {
         "notes": []
+      }
+    }
+  },
+  {
+    "id": "e003",
+    "headers": {
+      "from": "Iris Coleman <iris.coleman@info4days.edu>",
+      "to": "Shannon C. <shannon@info4days.edu>",
+      "cc": "",
+      "date": "Wed, 29 Jul 2026 08:20:00 -0400",
+      "subject": "Room name for the Thursday review"
+    },
+    "body": "Hi Shannon,\n\nQuick one before I send the invite: is the Thursday review in Room 12A or the boardroom? I only need the room name, nothing else.\n\nThanks,\nIris",
+    "label": {
+      "actions": [],
+      "next_step": "reply",
+      "draft": null
+    },
+    "category": "single-ask",
+    "difficulty": "easy",
+    "note": "Answerable only from get_note, so the smoke run fails loudly if the read tool is never called or its fixture is not wired. Exercises the reply path.",
+    "tool_returns": {
+      "check_calendar_available": {
+        "available": true
+      },
+      "check_unknown_sender": {
+        "known": true
+      },
+      "get_note": {
+        "notes": [
+          "[2026-07-28] Thursday review is booked into Room 12A.",
+          "[2026-07-25] Boardroom is reserved for the partner session that week."
+        ]
       }
     }
   }

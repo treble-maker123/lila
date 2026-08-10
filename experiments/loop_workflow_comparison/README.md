@@ -10,7 +10,8 @@ Common task for local agents, no?
 - A few hand-curated realistic seed data points can be found in `datasets/seed`,
 - Before generating `datasets/emails_individual.json`, read `datasets/EMAIL_GUIDELINE.md` for the label distribution, body style, and tool-return rules,
 - `make score RESULTS=results/<file>.json` re-scores a finished run without touching the model, folding a `labels` block back into the file; `run` writes and prints the same thing at the end,
-- `make notebook` opens `results/emails_individual.py`, a marimo notebook over those scored results.
+- `make results-notebook` opens `results/visualize_emails_individual.py`, a marimo notebook over those scored results,
+- `make dataset-notebook` opens `datasets/visualize_emails_individual.py`, the same treatment for the dataset itself — distribution, body/note sizes, tool fixtures, and a browsable list. No run needed.
 
 ## Hypothesis
 
@@ -115,7 +116,8 @@ Synthesized E-mails with hand labels for actions and action items with the follo
 
 - Number of E-mails: 40,
   - 30% promotional / fyi,
-    - All promotional and half the fyi target `no_action` (early exit) instead of summarizing for the user, to keep the experiment simple. Summarizing these E-mails as a part of batch is left for future works,
+    - Most promotional and half the fyi target `no_action` (early exit) instead of summarizing for the user, to keep the experiment simple. Summarizing these E-mails as a part of batch is left for future works,
+    - Two promotional E-mails instead target `flag_for_human`, because a standing note in `get_note` turns the offer into something the user wants done and the agent cannot do (buying). Without them "promotional" *is* the answer, and the category is worth 6 free points to any model that recognises the shape without reading anything,
     - The other half of fyi target `reply` — informational, but ending on a question the agent can answer,
   - 30% single-ask,
     - There is one ask in the E-mail as an action, some with a deadline, some don't,

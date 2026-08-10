@@ -2,7 +2,9 @@
 
 ``CURRENT_TIME`` is pinned to a fixed value so "now" is not a source of
 variability across runs (the model always reasons about deadlines relative to
-the same wall clock). It is deliberately arbitrary — here, last Wednesday.
+the same wall clock). The date is arbitrary — here, last Wednesday — but the
+offset is not: the dataset is written in US Eastern and every clock time in a
+body is ET, so no email asks the model to convert between zones.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 from src.models import Email
 
 # Fixed "now" injected into every prompt so time is held constant across runs.
-CURRENT_TIME = "Wed, 29 Jul 2026 09:40:10 +0400"
+CURRENT_TIME = "Wed, 29 Jul 2026 09:40:10 -0400"
 
 # Task-agnostic agent-loop prompt. Deliberately generic so it is NOT tuned for
 # email triage: the ReAct setups pair it with EMAIL_TRIAGE_SKILL below, which is

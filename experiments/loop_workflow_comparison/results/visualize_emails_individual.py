@@ -366,9 +366,9 @@ def _(Any, Counter, mean, mo):
         )
 
     def body_md(raw: str) -> str:
-        """Dataset bodies carry escaped newlines. Unescape them, and keep single line
-        breaks visible — markdown would otherwise fold a wrapped thread into one line."""
-        return raw.replace("\\n", "\n").replace("\n", "  \n")
+        """Keep single line breaks visible — markdown would otherwise fold a wrapped
+        thread into one line."""
+        return raw.replace("\n", "  \n")
 
     def metrics_md(metrics: dict[str, Any]) -> str:
         rows = [

@@ -25,6 +25,34 @@ For the latest distribution on data labels, refer to the experiment README.md do
 The prompt time is fixed by `src/prompts.py::CURRENT_TIME`, so email dates and
 deadline wording should be internally consistent with that timestamp.
 
+#### Fixed conventions
+
+These hold for every item, so nothing in the set turns on who the user is or
+what zone a clock time is in:
+
+- **Inbox owner** — always `Shannon C. <shannon@info4days.edu>` in `to`, and the
+  "You" in any quoted thread. Colleagues write from `@info4days.edu`; vendors,
+  services, and scammers keep their own domains,
+- **Time zone** — everything is US Eastern. Dates carry `-0400` and clock times in
+  bodies are written `14:00 ET`. No item should require converting between zones,
+- **Deadlines** — `label.actions[].deadline` is an absolute date (`Wed, 29 Jul
+  2026`), optionally with a time (`Thu, 30 Jul 2026 15:00`) or `EOD`. Never
+  `today` or `tomorrow`, even when the body says it that way,
+- **Action verbs** — one verb per item. Split `upload or send` into the verb that
+  the email actually requires; scoring compares one action per item on both sides,
+- **Newlines** — bodies use real `\n` escapes, not literal backslash-n.
+
+#### Length
+
+Bodies run roughly 120-750 words. Diversity matters more than any single target:
+mix short transactional asks with long threads and long promotional footers, and
+do not let length correlate with category. Promotional mail spans the full range.
+
+`get_note` returns vary the same way. Most entries are one-line facts, but a few
+emails carry a long pasted artifact — meeting minutes, a legal review, a week of
+standups — running 100-150 words on its own. A note set where every entry is the
+same terse length is unrealistic and makes the relevant one too easy to spot.
+
 The generated scaffold leaves these fields blank for hand-written content:
 `headers`, `body`, `note`, `difficulty`, and `tool_returns`. Fill those fields in
 the guideline process. Do not overwrite the scaffolded `label.classification`
@@ -35,11 +63,9 @@ or `label.next_step` values.
 - Use the seed docs below as style references when filling the blank scaffold.
 - Keep the generated set aligned with the README distribution.
 - Write each item as a realistic, self-contained email or short thread with one
-  clear scenario, concrete sender/recipient context, and a specific date that
-  makes sense relative to `CURRENT_TIME`.
-- Vary `from` and `to` instead of reusing the same pair. Bias bodies toward
-  medium (200-400 words) or long (500+ words); promotional mail can include the
-  usual long footer and unsubscribe boilerplate.
+  clear scenario, concrete sender context, and a specific date that makes sense
+  relative to `CURRENT_TIME`.
+- Vary `from`; `to` is always the inbox owner. See Fixed conventions above.
 
 - [This doc](seed/action_required-awaiting_payment.md)
   - Note: An easy example of action_required,
@@ -62,8 +88,13 @@ or `label.next_step` values.
 
 #### Generation Rules
 
-- For `promotional` items, keep them non-actionable: no request, no hidden ask,
-  and `next_step = no_action`.
+- For `promotional` items, the sender never asks for anything — no request, no
+  hidden ask. Most are `no_action`, but keep two where a standing `get_note`
+  preference turns the offer into a task the agent cannot do (buying), routing
+  `flag_for_human` with the offer window as the deadline. No category may map
+  one-to-one onto a route, or that route is free to any model that recognises the
+  shape. Give some of the `no_action` promotional items notes too, so notes on
+  promotional mail are not themselves the tell.
 - For `fyi` items, half are non-actionable (`no_action`); the other half end on a
   question the agent can answer from the email or `get_note`, routing `reply`.
 - For `single-ask` items, include exactly one ask. If the answer is available in
@@ -79,9 +110,21 @@ or `label.next_step` values.
   spoofed sender, and no legitimate action item. Route to `flag_for_human`.
 - Populate `tool_returns` explicitly for every email. Default to known sender,
   available calendar, and `{"notes": []}` unless the email is intentionally about
-  sender trust, scheduling, or hidden context. Promotional mail is usually
-  `check_unknown_sender.known = false`, and `get_note` should carry prior context
-  only when it changes the route.
+  sender trust, scheduling, or hidden context. `get_note` should carry prior
+  context only when it changes the route.
+- Keep each read tool falsifiable — a fixture that never varies tests nothing:
+  - `check_calendar_available` must be load-bearing in both directions. `e016`
+    returns true and settles the reply, `e015` returns false on a slot the owner
+    is holding — which rules the slot out but leaves the "will you give it up"
+    question to the human, so it routes `flag_for_human` — and `e036` returns
+    true where the email says availability is beside the point,
+  - `check_unknown_sender` must not be a proxy for "junk". Most promotional and
+    all suspicious mail is `known = false`, so the set deliberately breaks the
+    correlation both ways: `e006` is promotional from a known vendor, `e024`
+    (flag) and `e033` (reply) are legitimate mail from unknown senders,
+  - Known gap: no email has a spoofed *known* sender. `e040` impersonates a real
+    colleague, but from an address that genuinely is not a contact, so `false` is
+    the honest fixture. Closing this needs a new scenario, not a fixture flip.
 - Treat `get_note` as retrieved memory: notes should be relevant to the scenario,
   but may include stale, adjacent, or contradictory details that must be reconciled.
 - `no_action` means the email needs nothing. When a case is genuinely ambiguous,
@@ -91,9 +134,38 @@ or `label.next_step` values.
   - `easy` for direct cases with an obvious answer,
   - `medium` for one lookup or mild ambiguity,
   - `hard` for buried context, contradiction, or multi-step judgment.
-- Keep deadlines concrete and consistent with the fixed prompt time, using
-  phrases like "Friday EOD" or "by Thu 8/7" when appropriate.
+- Bodies may phrase deadlines naturally ("before Friday, 31 July"), but the
+  `deadline` field is always absolute. See Fixed conventions above.
+- Difficulty must come from the scenario, never from an incoherent one. Every
+  item has to make sense read end to end: consistent speakers, a thread whose
+  messages follow from each other, and an ask that someone would plausibly send.
+- `note` is the answer key, not a summary. State what makes the item hard, what
+  resolves it, and which distractors are deliberate — enough that a reader can
+  tell a model's mistake from a dataset bug. Never write instructions to the
+  agent into `get_note`; a note that says "flag this to the user" leaks the label.
 
 > [Proposed for review] Favor `flag_for_human` whenever the task would require
 > external systems, payment, signing, legal approval, or another action the
 > agent cannot safely complete itself.
+
+## Batch E-mails
+
+The individual E-mail results are interesting enough, this will be postponed to future works.
+
+The batch set targets a different MCP endpoint that returns many E-mails per
+call instead of one. Everything about individual items — conventions, labels,
+tool returns — carries over unchanged; only the packaging differs.
+
+- **Size** — each data point is a batch of 3-10 E-mails.
+- **Count** — 40 data points, built as combinations and permutations of items in
+  `emails_individual.json`. Reuse across batches is expected; vary batch size,
+  category mix, and ordering so neither is predictable.
+- **Composition** — a data point references the individual E-mails by ID; do not
+  duplicate `headers`, `body`, or `tool_returns`. Labels stay per-E-mail.
+- **Cross-E-mail review** — when assembling a batch, read all of its E-mails
+  together and reject combinations whose details conflict in ways that would
+  change how an agent handles them: the same deadline or meeting stated
+  differently, two E-mails contradicting each other on the same fact, or one
+  item's `get_note` answering another item's ask. Contradictions inside a single
+  E-mail are still fair game; contradictions *across* the batch are dataset bugs.
+

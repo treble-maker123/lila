@@ -131,18 +131,18 @@ pass `--force` only when discarding that work is the intent.
   sender trust, scheduling, or hidden context. `get_note` should carry prior
   context only when it changes the route.
 - Keep each read tool falsifiable — a fixture that never varies tests nothing:
-  - `check_calendar_available` must be load-bearing in both directions. `e016`
-    returns true and settles the reply, `e015` returns false on a slot the owner
-    is holding — which rules the slot out but leaves the "will you give it up"
-    question to the human, so it routes `flag_for_human` — and `e036` returns
-    true where the email says availability is beside the point,
+  - `check_calendar_available` must be load-bearing in both directions. Include
+    cases where availability settles a reply, cases where an unavailable slot
+    rules out the easy answer but leaves a human decision, and cases where the
+    calendar result is deliberately irrelevant because the email says
+    availability is beside the point,
   - `check_unknown_sender` must not be a proxy for "junk". Most promotional and
     all suspicious mail is `known = false`, so the set deliberately breaks the
-    correlation both ways: `e006` is promotional from a known vendor, `e024`
-    (flag) and `e033` (reply) are legitimate mail from unknown senders,
-  - Known gap: no email has a spoofed *known* sender. `e040` impersonates a real
-    colleague, but from an address that genuinely is not a contact, so `false` is
-    the honest fixture. Closing this needs a new scenario, not a fixture flip.
+    correlation both ways: include promotional mail from known vendors and
+    legitimate action mail from unknown senders across more than one route,
+  - If a spoofing case is included, make the fixture reflect the sender address
+    honestly. A message may impersonate a real colleague while still coming from
+    an address that genuinely is not a contact.
 - Treat `get_note` as retrieved memory: notes should be relevant to the scenario,
   but may include stale, adjacent, or contradictory details that must be reconciled.
 - The four items scaffolded `notes_conflict: true` go further: their notes must be
@@ -196,4 +196,3 @@ tool returns — carries over unchanged; only the packaging differs.
   differently, two E-mails contradicting each other on the same fact, or one
   item's `get_note` answering another item's ask. Contradictions inside a single
   E-mail are still fair game; contradictions *across* the batch are dataset bugs.
-

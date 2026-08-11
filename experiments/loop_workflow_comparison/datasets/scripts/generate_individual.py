@@ -59,15 +59,14 @@ class Segment(BaseModel):
 
 TOTAL = 50
 
-# Distribution (50 emails), mirroring README.md. next_step is balanced near-evenly
-# (17 reply / 17 flag_for_human / 16 no_action) so no route can be scored well by
-# riding the class prior — at 40 emails flag_for_human was 47.5% of the set and an
-# always-flag baseline scored 0.475 for free.
+# Distribution (50 emails), mirroring README.md. Promotional includes two
+# flag_for_human rows so the category is not a free no_action shortcut.
 #
 # no_action can only come from promotional and fyi, which is what sets those two
 # category shares; the rest of the mass goes to single-ask.
 SEGMENTS: list[Segment] = [
-    Segment(count=10, category="promotional", next_step="no_action"),
+    Segment(count=8, category="promotional", next_step="no_action"),
+    Segment(count=2, category="promotional", next_step="flag_for_human"),
     Segment(count=6, category="fyi", next_step="no_action"),
     Segment(count=4, category="fyi", next_step="reply"),
     Segment(count=6, category="single-ask", next_step="reply"),

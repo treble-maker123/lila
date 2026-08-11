@@ -50,7 +50,7 @@ run-individual: build
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
 		$(IMAGE) python -m src.main run \
 			--setup 1 --setup 2 \
-			--runs 5 --temperature 0.6 \
+			--runs 1 --temperature 0.0 \
 			--data datasets/emails_individual.json
 
 

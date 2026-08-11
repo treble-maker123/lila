@@ -1,22 +1,25 @@
 """Generate the scaffolding for datasets/emails_individual.json.
 
-This produces 40 email objects with empty headers/body, empty actions, null
-draft, and blank difficulty/note. Only ``label.next_step`` and ``category`` are
-populated, following the distribution documented in ../README.md and
-datasets/EMAIL_GUIDELINE.md.
+This produces 50 email objects with empty headers/body, empty actions, null
+draft, and blank scenario/difficulty/note. Only ``label.next_step``,
+``category`` and ``notes_conflict`` are populated, following the distribution
+documented in ../README.md and datasets/EMAIL_GUIDELINE.md.
 
 ``tool_returns`` is scaffolded with the canonical read-tool values
 (``READ_TOOL_DEFAULTS`` below) so every email answers each read tool explicitly;
 the person filling in the email overrides only the interesting deviations.
 
-Run from the experiment root:
+Writing over a dataset whose bodies are already filled in destroys hand-written
+work, so that needs --force. Run from the experiment root:
 
-    python datasets/scripts/generate_individual.py
+    python datasets/scripts/generate_individual.py [--force]
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -48,25 +51,36 @@ class Segment(BaseModel):
     count: int
     category: str
     next_step: str
+    # Marks the block whose get_note fixture is written to mislead. Kept off
+    # ``category`` on purpose: it is a property of the fixture, not the email shape,
+    # so the two stay independently sliceable.
+    notes_conflict: bool = False
 
 
-# Distribution (40 emails), mirroring README.md:
-#   30% promotional / fyi (early exit -> no_action)
-#   30% single-ask -> split evenly reply / flag_for_human
-#   15% multi-ask   -> split evenly reply / flag_for_human
-#   15% buried      -> split evenly reply / flag_for_human
-#   10% suspicious  (-> flag_for_human)
+TOTAL = 50
+
+# Distribution (50 emails), mirroring README.md. next_step is balanced near-evenly
+# (17 reply / 17 flag_for_human / 16 no_action) so no route can be scored well by
+# riding the class prior — at 40 emails flag_for_human was 47.5% of the set and an
+# always-flag baseline scored 0.475 for free.
+#
+# no_action can only come from promotional and fyi, which is what sets those two
+# category shares; the rest of the mass goes to single-ask.
 SEGMENTS: list[Segment] = [
-    Segment(count=6, category="promotional", next_step="no_action"),
-    Segment(count=3, category="fyi", next_step="no_action"),
-    Segment(count=3, category="fyi", next_step="reply"),
+    Segment(count=10, category="promotional", next_step="no_action"),
+    Segment(count=6, category="fyi", next_step="no_action"),
+    Segment(count=4, category="fyi", next_step="reply"),
     Segment(count=6, category="single-ask", next_step="reply"),
-    Segment(count=6, category="single-ask", next_step="flag_for_human"),
+    Segment(count=1, category="single-ask", next_step="reply", notes_conflict=True),
+    Segment(count=5, category="single-ask", next_step="flag_for_human"),
+    Segment(count=1, category="single-ask", next_step="flag_for_human", notes_conflict=True),
     Segment(count=3, category="multi-ask", next_step="reply"),
-    Segment(count=3, category="multi-ask", next_step="flag_for_human"),
-    Segment(count=3, category="buried", next_step="reply"),
+    Segment(count=2, category="multi-ask", next_step="flag_for_human"),
+    Segment(count=1, category="multi-ask", next_step="flag_for_human", notes_conflict=True),
+    Segment(count=2, category="buried", next_step="reply"),
+    Segment(count=1, category="buried", next_step="reply", notes_conflict=True),
     Segment(count=3, category="buried", next_step="flag_for_human"),
-    Segment(count=4, category="suspicious", next_step="flag_for_human"),
+    Segment(count=5, category="suspicious", next_step="flag_for_human"),
 ]
 
 
@@ -92,7 +106,9 @@ def build_emails() -> list[dict]:
                     },
                     "category": segment.category,
                     "difficulty": "",
+                    "scenario": "",
                     "note": "",
+                    "notes_conflict": segment.notes_conflict,
                     "tool_returns": {
                         tool: dict(value) for tool, value in READ_TOOL_DEFAULTS.items()
                     },
@@ -101,10 +117,38 @@ def build_emails() -> list[dict]:
     return emails
 
 
+def written_emails(path: Path) -> int:
+    """How many emails at ``path`` already have a body, i.e. hand-written work that
+    regenerating would destroy. 0 if the file is absent or unreadable as a dataset."""
+    if not path.exists():
+        return 0
+    try:
+        existing = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return 0
+    return sum(1 for e in existing if e.get("body", "").strip())
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite even if the existing dataset has hand-written bodies.",
+    )
+    args = parser.parse_args()
+
     emails = build_emails()
     total = sum(segment.count for segment in SEGMENTS)
-    assert len(emails) == total == 40, (len(emails), total)
+    assert len(emails) == total == TOTAL, (len(emails), total)
+
+    filled = written_emails(OUTPUT_PATH)
+    if filled and not args.force:
+        sys.exit(
+            f"Refusing to overwrite {OUTPUT_PATH}: {filled} emails already have bodies.\n"
+            "The scaffold is blank, so this would discard them. Re-run with --force if "
+            "that is what you want."
+        )
 
     OUTPUT_PATH.write_text(json.dumps(emails, indent=2) + "\n")
 
@@ -113,6 +157,7 @@ def main() -> None:
     print(f"Wrote {len(emails)} emails to {OUTPUT_PATH}")
     print("category:", dict(category))
     print("next_step:", dict(next_step))
+    print("notes_conflict:", sum(1 for e in emails if e["notes_conflict"]))
 
 
 if __name__ == "__main__":

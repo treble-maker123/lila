@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable
 
@@ -23,7 +22,7 @@ from src.models import (
     RunResult,
     RunWarning,
 )
-from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM
+from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM, render_tool_result
 
 MAX_STEPS = 12
 
@@ -153,7 +152,9 @@ def run_email(
                 break
             if name == "get_new_email":
                 fetched_email = True
-            messages.append({"role": "tool", "content": json.dumps(result), "name": name})
+            messages.append(
+                {"role": "tool", "content": render_tool_result(name, result), "name": name}
+            )
         # reply / flag_for_human are terminal routing decisions.
         if done:
             break

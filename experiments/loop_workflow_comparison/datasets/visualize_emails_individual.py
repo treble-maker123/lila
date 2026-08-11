@@ -66,13 +66,16 @@ def _(Any, Path, json, mo):
 def _(Any, Counter, emails: "list[dict[str, Any]]", mo):
     # Targets from the README's Dataset section, as a share of the set.
     CATEGORY_TARGETS: dict[str, float] = {
-        "promotional": 0.15,
-        "fyi": 0.15,
-        "single-ask": 0.30,
-        "multi-ask": 0.15,
-        "buried": 0.15,
+        "promotional": 0.20,
+        "fyi": 0.20,
+        "single-ask": 0.26,
+        "multi-ask": 0.12,
+        "buried": 0.12,
         "suspicious": 0.10,
     }
+    # Counts, not shares: the point of balancing the routes is that no single one
+    # carries enough of the set to be worth guessing.
+    NEXT_STEP_TARGETS: dict[str, int] = {"reply": 17, "no_action": 16, "flag_for_human": 17}
     NEXT_STEPS: tuple[str, ...] = ("reply", "no_action", "flag_for_human")
     DIFFICULTIES: tuple[str, ...] = ("easy", "medium", "hard")
 
@@ -99,6 +102,8 @@ def _(Any, Counter, emails: "list[dict[str, Any]]", mo):
             )
         totals = " | ".join(str(sum(counts[(c, s)] for c in order)) for s in NEXT_STEPS)
         lines.append(f"| **all** | {totals} | {total} | 100% | 100% |")
+        targets = " | ".join(str(NEXT_STEP_TARGETS[s]) for s in NEXT_STEPS)
+        lines.append(f"| *route target* | {targets} | {sum(NEXT_STEP_TARGETS.values())} | | |")
         return "\n".join(lines)
 
     def tally(key: str, order: tuple[str, ...], values: list[dict[str, Any]]) -> str:
@@ -133,8 +138,9 @@ def _(Any, Counter, emails: "list[dict[str, Any]]", mo):
             mo.md(crosstab(categories, emails)),
             mo.md(
                 "*`·` is an empty cell. `share` is of the whole set; `target` is the README's "
-                "Dataset section. Promotional and half of fyi target `no_action`; multi-ask and "
-                "buried split evenly between `reply` and `flag_for_human`.*"
+                "Dataset section. Promotional and most of fyi target `no_action`; multi-ask and "
+                "buried split between `reply` and `flag_for_human`. The routes are balanced on "
+                "purpose — a lopsided column is a free score for any model that guesses it.*"
             ),
             mo.hstack(
                 [
@@ -218,7 +224,10 @@ def _(
             present = [e for e in values if tool in e["tool_returns"]]
             if tool == "get_note":
                 empty = sum(1 for e in present if not notes_of(e))
-                returns = f"{len(present) - empty} with notes, {empty} empty"
+                conflict = sum(1 for e in present if e.get("notes_conflict"))
+                returns = (
+                    f"{len(present) - empty} with notes, {empty} empty, {conflict} contradictory"
+                )
             else:
                 counts = Counter(str(e["tool_returns"][tool]) for e in present)
                 returns = ", ".join(f"`{v}` ×{n}" for v, n in counts.most_common())
@@ -243,7 +252,11 @@ def _(
                             mo.md(fixtures(emails)),
                             mo.md(
                                 "*The mock server raises on a read-tool call with no fixture, so "
-                                "a missing row means that call fails the run.*"
+                                "a missing row means that call fails the run. The contradictory "
+                                "`get_note` fixtures are the ones where gathering context costs "
+                                "accuracy rather than buying it — without them, always fetching "
+                                "is free and a setup that hardcodes the lookup wins by "
+                                "construction.*"
                             ),
                         ],
                         gap=0.5,
@@ -488,7 +501,13 @@ def _(Any, body_text, mo, notes_of):
         if not needle:
             return True
         haystack = " ".join(
-            [email["id"], email["headers"]["subject"], email["body"], *notes_of(email)]
+            [
+                email["id"],
+                email["headers"]["subject"],
+                email["body"],
+                email.get("scenario", ""),
+                *notes_of(email),
+            ]
         )
         return needle.lower() in haystack.lower()
 
@@ -500,6 +519,7 @@ def _(Any, body_text, mo, notes_of):
             f"**{email['label']['next_step']}** · `{email['category']}` / "
             f"`{email['difficulty']}` · {len(body_text(email).split())}w"
             + (f" + {len(notes)} notes" if notes else "")
+            + (" · ⚠ contradictory notes" if email.get("notes_conflict") else "")
         )
 
     def body_md(email: dict[str, Any]) -> str:
@@ -523,9 +543,16 @@ def _(Any, body_text, mo, notes_of):
         )
         return f"**next_step** `{label['next_step']}`\n\n{actions}"
 
+    def scenario_md(email: dict[str, Any]) -> str:
+        """The situation behind the email, so a reader can follow a thread without
+        reverse-engineering it. Unlike `note`, it does not give the answer away."""
+        scenario = email.get("scenario", "")
+        return f"**Scenario** — {scenario}" if scenario else "*No scenario written.*"
+
     def detail(email: dict[str, Any]) -> Any:
         return mo.vstack(
             [
+                mo.md(scenario_md(email)),
                 mo.md(
                     f"**From** {email['headers']['from']}  \n"
                     f"**To** {email['headers']['to']}"

@@ -114,21 +114,26 @@ behavior there is to flag, not to hallucinate a capability.
 
 Synthesized E-mails with hand labels for actions and action items with the following attributes,
 
-- Number of E-mails: 40,
-  - 30% promotional / fyi,
-    - Most promotional and half the fyi target `no_action` (early exit) instead of summarizing for the user, to keep the experiment simple. Summarizing these E-mails as a part of batch is left for future works,
-    - Two promotional E-mails instead target `flag_for_human`, because a standing note in `get_note` turns the offer into something the user wants done and the agent cannot do (buying). Without them "promotional" *is* the answer, and the category is worth 6 free points to any model that recognises the shape without reading anything,
-    - The other half of fyi target `reply` — informational, but ending on a question the agent can answer,
-  - 30% single-ask,
+- Number of E-mails: 50,
+  - 20% promotional,
+    - Most target `no_action` (early exit) instead of summarizing for the user, to keep the experiment simple. Summarizing these E-mails as a part of batch is left for future works,
+    - Two promotional E-mails instead target `flag_for_human`, because a standing note in `get_note` turns the offer into something the user wants done and the agent cannot do (buying). Without them "promotional" *is* the answer, and the category is worth free points to any model that recognises the shape without reading anything,
+  - 20% fyi,
+    - Most target `no_action`; the rest target `reply` — informational, but ending on a question the agent can answer,
+  - 26% single-ask,
     - There is one ask in the E-mail as an action, some with a deadline, some don't,
-  - 15% multi-ask,
+  - 12% multi-ask,
     - Multiple actions needed, possibly supplied as a long E-mail thread,
-  - 15% asks buried in E-mail chains,
+  - 12% asks buried in E-mail chains,
     - There is an E-mail thread, and the latest E-mail contains some asks,
   - 10% suspicious.
     - Spam or scammers
 
-Multi-ask and buried E-mails skew toward `flag_for_human` as the next step, so within each of those two categories the labels are split evenly between `reply` and `flag_for_human`.
+Multi-ask and buried E-mails skew toward `flag_for_human` as the next step, so within each of those two categories the labels are split between `reply` and `flag_for_human`.
+
+**Route balance.** `next_step` is held near-even at 17 `reply` / 17 `flag_for_human` / 16 `no_action`. An earlier 40-email set was 47.5% `flag_for_human`, which handed an always-flag baseline 0.475 and flattered any setup biased that way — and the routing policy already names `flag_for_human` as the tie-break when unsure, so the class prior and the policy were pushing in the same direction and could not be told apart. The policy bias stays; the prior does not. Report accuracy against the majority-class baseline, and prefer macro-F1 over accuracy when a run's errors are unevenly spread.
+
+**Contradictory notes.** Four E-mails (`notes_conflict: true`) carry a `get_note` fixture built to mislead — stale, contradictory, or about a neighbouring matter — spread across two `reply` and two `flag_for_human` items so the trait does not correlate with a route. They exist because every other E-mail's notes are relevant and free to fetch, which makes unconditional context-gathering optimal by construction and hands the graph setup its main advantage for free. These are the items where gathering has to be a judgment call.
 
 ## Metrics
 
@@ -212,7 +217,15 @@ instability, not accuracy. Needs `--runs` ≥ 2 to say anything.
 is it with n-way voting on top. An email right in 2 of 3 runs gives 0.67 to mean
 `correct`, 0 to `pass^3`, 1 to `majority_correct`.
 
-At 40 emails gaps under ~8 points are noise, and `pass^k` is the noisiest here.
+At 50 emails gaps under ~7 points are noise, and `pass^k` is the noisiest here.
+
+Runs are not independent samples when the model is deterministic: at `--temperature
+0.0` every run comes back identical, so `--runs 5` is 50 emails of evidence, not
+250, and the per-class precision/recall computed over 250 email-runs carry
+confidence intervals a factor of √5 too tight. Compare setups pairwise per email
+(how many emails did A get right that B got wrong, and vice versa) rather than
+comparing the two accuracy figures. `--runs` > 1 only buys information above
+temperature 0.
 
 ### Actions
 
@@ -257,6 +270,8 @@ Out of scope for now, to keep scoring deterministic.
 - Temperature - at 0, all setups may be consistent (minus hardware-related drift). At 1.0, loop may destabilize in a way that overstates the effect. Need to test across different temperatures,
   - One perk with graphical workflows is that temperature can be set at a finer granularity. For this experiment, we are deliberately not exercising it so comparison stays clean,
 - To keep the experiment simple, images and attachments are out of scope.
+- Tool namespace size is not held equal, and deliberately so. The graph offers each node only the tools that node may use — three at the gather step, three at the decide step — while the loop carries all seven at every step. Part of any loop-vs-graph gap is therefore the loop choosing from a wider menu, not the control flow itself. Collapsing the read tools behind one entry point would equalize it, but it would also take away the loop's ability to pick, which is the thing being tested. Read it as a real cost of the loop shape: **a loop needs deliberate tool-search design — progressive disclosure, namespacing, retrieval over tool descriptions — and that design work is load-bearing at a scale this experiment (seven tools) barely probes.**
+- Setup 2's `get_new_email` is dispatched in code and costs no forward pass, so on emails where the loop routes immediately the graph gets two model calls that have seen the email against the loop's one. Forced ordering is genuinely the graph's advantage; the free call is an implementation choice, and it flatters the graph's cost numbers in particular.
 
 ## Future Work
 

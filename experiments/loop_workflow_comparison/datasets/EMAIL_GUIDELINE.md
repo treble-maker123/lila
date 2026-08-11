@@ -54,9 +54,27 @@ standups — running 100-150 words on its own. A note set where every entry is t
 same terse length is unrealistic and makes the relevant one too easy to spot.
 
 The generated scaffold leaves these fields blank for hand-written content:
-`headers`, `body`, `note`, `difficulty`, and `tool_returns`. Fill those fields in
-the guideline process. Do not overwrite the scaffolded `label.classification`
-or `label.next_step` values.
+`headers`, `body`, `scenario`, `note`, `difficulty`, and `tool_returns`. Fill
+those fields in the guideline process. Do not overwrite the scaffolded
+`label.classification`, `label.next_step`, or `notes_conflict` values.
+
+`scenario` and `note` are different fields and must not collapse into each other:
+
+- `scenario` is the situation — who these people are, what they are in the middle
+  of, why this email arrived now. One or two sentences, readable before the body,
+  and it must not give the route away. It exists so someone reviewing a long
+  thread can follow it without reconstructing the backstory,
+- `note` is the answer key — what makes the item hard, what resolves it, which
+  distractors are deliberate.
+
+Write `scenario` first, then derive `headers`, `body`, `tool_returns`,
+`difficulty`, `label.actions`, and `note` from it. The scaffold fixes the route
+before any prose exists, so body-first authoring bends the email to hit its
+label. If the scenario doesn't land on the scaffolded `next_step`, rewrite the
+scenario, not the label.
+
+The generator refuses to overwrite a dataset whose bodies are already filled in;
+pass `--force` only when discarding that work is the intent.
 
 #### Seed References
 
@@ -127,6 +145,16 @@ or `label.next_step` values.
     the honest fixture. Closing this needs a new scenario, not a fixture flip.
 - Treat `get_note` as retrieved memory: notes should be relevant to the scenario,
   but may include stale, adjacent, or contradictory details that must be reconciled.
+- The four items scaffolded `notes_conflict: true` go further: their notes must be
+  actively misleading, so that an agent which fetches them and takes them at face
+  value routes *worse* than one that decided the email needed no lookup. Use a
+  superseded fact, a note about an adjacent matter that reads as if it applies, or
+  two notes that disagree with no tiebreaker in the email. Everywhere else notes
+  help, which makes fetching them unconditionally free — these are the items that
+  price it. The email must still be answerable: the correct route stays derivable
+  from the body, so the contradiction is a trap, not an unanswerable question.
+  Keep them spread across routes; if all four were `flag_for_human`, "notes
+  conflict" would just be a synonym for the route.
 - `no_action` means the email needs nothing. When a case is genuinely ambiguous,
   label it `flag_for_human` — surfacing beats burying, and it keeps `no_action`
   from meaning "couldn't tell".

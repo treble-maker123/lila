@@ -35,7 +35,7 @@ from src.models import (
     RunResult,
     RunWarning,
 )
-from src.prompts import ROUTING_POLICY
+from src.prompts import GATHER_POLICY, ROUTING_INSTRUCTION, ROUTING_POLICY, render_tool_result
 from src.setup1_react_local import parse_actions
 
 
@@ -126,11 +126,7 @@ def run_email(
     # prefill reuses the first node's KV cache. Node-specific instructions go last;
     # anything that varies between nodes must stay after the shared prefix or the
     # cache match breaks at the first differing token.
-    gather_prompt = (
-        f"{email_text}\n\n"
-        "Before deciding how to handle this email, make any tool calls you need to "
-        "gather context. Call nothing if you need nothing."
-    )
+    gather_prompt = f"{email_text}\n\nBefore deciding how to handle this email:\n{GATHER_POLICY}"
     try:
         gathered = _chat_tools(
             client, model, temperature, think, num_ctx, gather_prompt, READ_TOOLS
@@ -168,14 +164,17 @@ def run_email(
     # Node 3: decide — route via exactly one routing tool. Actions are only extracted
     # here, on the flag_for_human path.
     obs_text = (
-        "\n".join(f"- {o['tool']}({o['args']}) -> {o['result']}" for o in observations) or "(none)"
+        "\n".join(
+            f"- {o['tool']}({o['args']}) -> {render_tool_result(o['tool'], o['result'])}"
+            for o in observations
+        )
+        or "(none)"
     )
     decide_prompt = (
         f"{email_text}\n\n"
         "Decide how to handle this email, using these definitions:\n"
         f"{ROUTING_POLICY}"
-        "Act on the route by calling exactly one of reply(message), "
-        "flag_for_human(actions) or no_action().\n"
+        f"{ROUTING_INSTRUCTION}"
         f"\nContext you gathered:\n{obs_text}"
     )
     try:

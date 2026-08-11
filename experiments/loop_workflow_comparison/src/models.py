@@ -102,9 +102,18 @@ class Email(BaseModel):
     label: Label
     category: Category = ""
     difficulty: Difficulty = ""
+    # One or two sentences of situation — who these people are and what is going on
+    # between them — so a reader can follow the email without reconstructing it from
+    # the thread. Describes the setting, not the answer; that is ``note``.
+    scenario: str = ""
     # Free-form human-annotated note about this data point. Blank ("") until
     # hand-written.
     note: str = ""
+    # True when this email's ``get_note`` fixture is built to mislead — stale,
+    # contradictory, or about a neighbouring matter. These are the emails where
+    # gathering context costs accuracy instead of buying it, which is what keeps an
+    # unconditional-gather setup from being free (see README "Dataset").
+    notes_conflict: bool = False
     # Fixed return values for the environment tools, keyed by tool name. The mock
     # MCP server (see src/mcp_server.py) returns these verbatim so a run's tool
     # observations stay deterministic. Shape is tool-specific, e.g.

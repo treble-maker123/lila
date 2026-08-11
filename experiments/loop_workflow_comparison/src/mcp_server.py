@@ -91,17 +91,28 @@ TOOLS: list[dict[str, Any]] = [
             # Explicit rather than "absence of a routing call". A single-shot node with
             # only reply/flag_for_human in front of it cannot express no-action by
             # silence — the model reliably picks a tool — and in the loop, silence was
-            # indistinguishable from wandering off. Note this is the only routing tool
-            # taking no arguments, so it is also the cheapest to emit; watch for it
-            # being over-selected on emails that genuinely need action.
+            # indistinguishable from wandering off. ``reason`` is required so this is
+            # not the cheapest route to emit: with no arguments it was the shortest
+            # token path of the three, which biases selection toward it for reasons
+            # that have nothing to do with the email.
             "description": (
                 "Take no action on this email and leave it in the inbox. Use when the "
                 "email needs nothing from you, including informational mail that does "
                 "not require a response or follow-up. Use for promotional, fyi, "
                 "automated, or CC-only emails when nothing needs to be done. Do not use "
-                "when you are merely unsure; flag those instead."
+                "when you are merely unsure; flag those instead. State why nothing is "
+                "needed."
             ),
-            "parameters": {"type": "object", "properties": {}, "required": []},
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Why this email needs nothing from you.",
+                    }
+                },
+                "required": ["reason"],
+            },
         },
     },
     {

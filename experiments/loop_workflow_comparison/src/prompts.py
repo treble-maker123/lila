@@ -9,6 +9,9 @@ body is ET, so no email asks the model to convert between zones.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from src.models import Email
 
 # Fixed "now" injected into every prompt so time is held constant across runs.
@@ -37,25 +40,56 @@ ROUTING_POLICY = (
     "attention (verb, subject, optional deadline). This is also the default when you "
     "are unsure - surfacing an email is safer than burying it.\n"
     "- no_action: the email is promotional, fyi, automated, or you're only CC'd - "
-    "nothing to do. Use only when you are confident nothing is needed.\n"
+    "nothing to do. Use only when you are confident nothing is needed, and say why.\n"
+)
+
+# When to call the read tools, worded once and shared like ROUTING_POLICY. States a
+# test rather than a lean: the graph used to invite tool calls outright while the loop
+# only mentioned gathering in passing, which put an uncontrolled prompt difference on
+# top of the mechanism the experiment measures. Deliberately not firmer than this —
+# "always check your notes first" would hand the loop the graph's behaviour by prompt
+# and turn the comparison into instruction-following.
+GATHER_POLICY = (
+    "Look up context only when it would change how you handle this email. Call nothing "
+    "if it would not.\n"
+)
+
+# How a setup tells the model to commit to a route. Shared so the loop and the graph
+# name the same three tools with the same arity — no_action takes a reason precisely
+# so it is not the cheapest tool to emit (see src/mcp_server.py).
+ROUTING_INSTRUCTION = (
+    "Act on the route by calling exactly one of reply(message), flag_for_human(actions) "
+    "or no_action(reason).\n"
 )
 
 # The email-triage procedure, expressed as a skill the agent follows. This is the
 # same procedure setup 2 encodes structurally in its graph, so do not duplicate it
 # into a bespoke system prompt — pair it with GENERIC_AGENT_SYSTEM instead. The
-# routing definitions are shared with the graph via ROUTING_POLICY.
+# routing definitions are shared with the graph via ROUTING_POLICY and GATHER_POLICY.
 EMAIL_TRIAGE_SKILL = (
     "# Skill: email triage\n"
     "Triage the user's inbox one email at a time.\n"
     "1. Call get_new_email to fetch the email to process.\n"
     # Deliberately does not enumerate the read tools: their schemas are already
     # passed to the model, and the graph's gather node doesn't enumerate them either.
-    "2. Gather any context you need to decide.\n"
+    f"2. {GATHER_POLICY}"
     "3. Then route the email using these definitions:\n"
     f"{ROUTING_POLICY}"
-    "Act on the route by calling exactly one of reply(message), flag_for_human(actions) "
-    "or no_action().\n"
+    f"{ROUTING_INSTRUCTION}"
 )
+
+
+def render_tool_result(tool: str, result: dict[str, Any]) -> str:
+    """Render one tool result as prompt text, identically for every setup.
+
+    ``get_new_email`` is unwrapped to the rendered email rather than JSON-encoded:
+    encoding it hands the loop a ``\\n``-escaped blob where the graph reads prose,
+    which is a formatting difference masquerading as a control-flow one. Every other
+    result is a small dict and goes through JSON in both setups.
+    """
+    if tool == "get_new_email":
+        return str(result["email"])
+    return json.dumps(result)
 
 
 def render_email(email: Email) -> str:

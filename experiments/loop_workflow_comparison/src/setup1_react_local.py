@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import ollama
 
-from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError
+from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError, call_role
 from src.models import (
     DEFAULT_DRAFT,
     Action,
@@ -18,6 +20,7 @@ from src.models import (
     RunWarning,
 )
 from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM, render_tool_result
+from src.tokens import split_output
 
 MAX_STEPS = 12
 
@@ -75,7 +78,11 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
 
     state: dict[str, object] = {"actions": [], "next_step": None, "draft": None}
     prompt_tokens: list[int] = []
+    call_roles: list[str] = []
     tokens_out = 0
+    tokens_out_pre = 0
+    tokens_out_post = 0
+    split_exact = True
     # KV high-water mark. The last call of a growing conversation is normally the
     # largest, but take the max rather than the last so a truncated or failed final
     # call cannot understate what the loop actually held.
@@ -107,6 +114,19 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
         peak_context_tokens = max(
             peak_context_tokens, (resp.prompt_eval_count or 0) + (resp.eval_count or 0)
         )
+        # The loop's roles are inferred from what it chose to call; the graph's are its
+        # nodes. That asymmetry is the thing being measured, not a measurement flaw.
+        raw_calls = [
+            {"name": tc.function.name, "arguments": dict(tc.function.arguments or {})}
+            for tc in (msg.tool_calls or [])
+        ]
+        call_roles.append(call_role([c["name"] for c in raw_calls]))
+        pre, post, exact = split_output(
+            resp.eval_count or 0, msg.content or "", json.dumps(raw_calls) if raw_calls else ""
+        )
+        tokens_out_pre += pre
+        tokens_out_post += post
+        split_exact = split_exact and exact
         loops.append(
             LoopDebug(
                 input=[dict(m) for m in messages],
@@ -193,6 +213,10 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
         # the last one and the final prompt is the count of distinct input tokens.
         tokens_in_unique=prompt_tokens[-1] if prompt_tokens else 0,
         tokens_out=tokens_out,
+        call_roles=call_roles,  # type: ignore[arg-type]
+        tokens_out_pre=tokens_out_pre,
+        tokens_out_post=tokens_out_post,
+        tokens_out_split="exact" if split_exact else "estimated",
         peak_context_tokens=peak_context_tokens,
         steps=steps,
         error=error,

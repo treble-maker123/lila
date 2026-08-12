@@ -58,6 +58,9 @@ ErrorKind = Literal[
 #                        set; the call is skipped and the node continues
 WarningKind = Literal["action_parse_error", "out_of_node_tool"]
 
+# What one model call was for. ``none`` is a call that produced no tool call at all.
+CallRole = Literal["fetch", "gather", "decide", "none"]
+
 
 class RunError(BaseModel):
     kind: ErrorKind
@@ -169,6 +172,18 @@ class Metrics(BaseModel):
     # Per-call prompt token counts, in call order, so the two totals above can be
     # re-derived and the provider's own caching behaviour audited.
     prompt_tokens: list[int] = Field(default_factory=list)
+    # What each call was for, parallel to prompt_tokens, so input cost groups by role.
+    # The graph's roles are its nodes; the loop's are inferred from the tools it chose,
+    # which is the point — one setup's roles are fixed, the other's are emergent.
+    call_roles: list[CallRole] = Field(default_factory=list)
+    # Output split at the prose/tool-call boundary. Only ``pre`` can steer the route:
+    # it is generated before the tool call and conditions it. ``post`` is the draft,
+    # actions or reason, emitted after the tool name and unable to change it.
+    tokens_out_pre: int = 0
+    tokens_out_post: int = 0
+    # "estimated" when any call mixed prose and a tool call and had to be apportioned
+    # by character share; "exact" when every call was one or the other.
+    tokens_out_split: Literal["exact", "estimated"] = "exact"
     # Most context the setup held at once on this email: max over provider calls of
     # (prompt + generated) tokens. This is the setup's KV high-water mark, and the
     # loop-vs-graph memory difference lives here — the loop re-sends a growing
@@ -230,6 +245,11 @@ class InferenceResult(BaseModel):
     tokens_in_cumulative: int
     tokens_in_unique: int
     tokens_out: int
+    # See Metrics for all four.
+    call_roles: list[CallRole] = Field(default_factory=list)
+    tokens_out_pre: int = 0
+    tokens_out_post: int = 0
+    tokens_out_split: Literal["exact", "estimated"] = "exact"
     # Max over provider calls of (prompt + generated) tokens; see Metrics.
     peak_context_tokens: int = 0
     steps: int = 0
@@ -246,6 +266,11 @@ class MetricsSummary(BaseModel):
     tokens_out: int
     wall_clock_ms: int
     read_tool_calls: int = 0
+    tokens_out_pre: int = 0
+    tokens_out_post: int = 0
+    # Calls and their prompt tokens grouped by what the call was for.
+    calls_by_role: dict[str, int] = Field(default_factory=dict)
+    tokens_in_by_role: dict[str, int] = Field(default_factory=dict)
     errors: int
     # Memory aggregates upward as a max, not a sum: emails run one after another, so
     # what a setup needs is its worst email, not the total across them.
@@ -265,6 +290,12 @@ class SetupSummary(BaseModel):
     tokens_out: int
     wall_clock_ms: int
     read_tool_calls: int = 0
+    # Generated tokens that could steer the route (prose, emitted before the tool call)
+    # versus those that could not (the draft/actions payload after the tool name).
+    tokens_out_pre: int = 0
+    tokens_out_post: int = 0
+    calls_by_role: dict[str, int] = Field(default_factory=dict)
+    tokens_in_by_role: dict[str, int] = Field(default_factory=dict)
     # Email-runs that produced no routing decision (predicted.next_step == "error").
     errors: int
     # High-water mark across every email of every run of this setup.

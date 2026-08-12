@@ -23,8 +23,25 @@ def peak_memory(results: list[RunResult]) -> MemoryFootprint | None:
     return max(footprints, key=lambda f: f.total_bytes)
 
 
+def _by_role(results: list[RunResult]) -> tuple[dict[str, int], dict[str, int]]:
+    """Calls and prompt tokens grouped by what each call was for. Roles and prompt
+    tokens are parallel lists; zip stops at the shorter one if a run predates them."""
+    calls: Counter[str] = Counter()
+    tokens: Counter[str] = Counter()
+    for r in results:
+        for role, prompt in zip(r.metrics.call_roles, r.metrics.prompt_tokens, strict=False):
+            calls[role] += 1
+            tokens[role] += prompt
+    return dict(calls), dict(tokens)
+
+
 def summarize(results: list[RunResult]) -> MetricsSummary:
+    calls_by_role, tokens_in_by_role = _by_role(results)
     return MetricsSummary(
+        calls_by_role=calls_by_role,
+        tokens_in_by_role=tokens_in_by_role,
+        tokens_out_pre=sum(r.metrics.tokens_out_pre for r in results),
+        tokens_out_post=sum(r.metrics.tokens_out_post for r in results),
         total=len(results),
         tokens_in_cumulative=sum(r.metrics.tokens_in_cumulative for r in results),
         tokens_in_unique=sum(r.metrics.tokens_in_unique for r in results),

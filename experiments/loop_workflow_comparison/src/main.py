@@ -118,6 +118,30 @@ def _probe(model: str, ollama_url: str, num_ctx: int) -> PromptProbe | None:
     return probe
 
 
+ROLE_ORDER = ("fetch", "gather", "decide", "none")
+
+
+def _breakdown_table(summaries: list[SetupSummary]) -> Table:
+    """Where the tokens went: input by call role, output by whether it could steer."""
+    table = Table(title="Token breakdown", show_header=True)
+    table.add_column("Bucket")
+    for s in summaries:
+        table.add_column(s.label, justify="right")
+    for role in ROLE_ORDER:
+        if not any(s.calls_by_role.get(role) for s in summaries):
+            continue
+        table.add_row(
+            f"in · {role}",
+            *(
+                f"{s.tokens_in_by_role.get(role, 0):,} ({s.calls_by_role.get(role, 0)} calls)"
+                for s in summaries
+            ),
+        )
+    table.add_row("out · pre-decision", *(f"{s.tokens_out_pre:,}" for s in summaries))
+    table.add_row("out · post-decision", *(f"{s.tokens_out_post:,}" for s in summaries))
+    return table
+
+
 def _peak_mb(footprint: MemoryFootprint | None) -> str:
     """Render the footprint as ``total (kv)`` in MB, or '-' if uncalibrated."""
     if footprint is None:
@@ -391,6 +415,10 @@ def run(
                 tokens_out=s.tokens_out,
                 wall_clock_ms=s.wall_clock_ms,
                 read_tool_calls=s.read_tool_calls,
+                tokens_out_pre=s.tokens_out_pre,
+                tokens_out_post=s.tokens_out_post,
+                calls_by_role=s.calls_by_role,
+                tokens_in_by_role=s.tokens_in_by_role,
                 errors=s.errors,
                 peak_context_tokens=s.peak_context_tokens,
                 memory=s.memory,
@@ -410,6 +438,7 @@ def run(
             str(s.errors),
         )
     console.print(table)
+    console.print(_breakdown_table(summaries))
     if skipped_email_ids:
         console.print(
             f"[yellow]Skipped {len(skipped_email_ids)} empty emails; "

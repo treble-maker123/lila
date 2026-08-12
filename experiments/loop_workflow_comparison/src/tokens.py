@@ -35,6 +35,22 @@ class PromptProbe(BaseModel):
         return max(0, node_prompt_tokens - self.wrapper_tokens)
 
 
+def split_output(total: int, prose: str, calls: str) -> tuple[int, int, bool]:
+    """Split one call's generated tokens into (prose, tool-call, exact?).
+
+    Exact whenever the call produced only one of the two, which covers every graph
+    node (content is always empty) and most loop turns. A call that emitted both is
+    apportioned by character share — biased, because JSON tokenizes denser than
+    prose, so it undercounts the tool-call side.
+    """
+    if not calls:
+        return total, 0, True
+    if not prose.strip():
+        return 0, total, True
+    prose_tokens = round(total * len(prose) / (len(prose) + len(calls)))
+    return prose_tokens, total - prose_tokens, False
+
+
 def probe_wrapper(client: ollama.Client, model: str, num_ctx: int, suffix: str) -> PromptProbe:
     """One tiny startup call, so it never lands inside a scored email."""
     try:

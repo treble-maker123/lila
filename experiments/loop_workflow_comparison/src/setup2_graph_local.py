@@ -13,6 +13,7 @@ differences from setup 1, which is what a 1-vs-2 delta attributes to.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import ollama
@@ -33,6 +34,7 @@ from src.models import (
 )
 from src.prompts import GATHER_POLICY, ROUTING_INSTRUCTION, ROUTING_POLICY, render_tool_result
 from src.setup1_react_local import parse_actions
+from src.tokens import split_output
 
 # The gather node's prompt is the email followed by this. Named so src/tokens.py can
 # price the wrapper and subtract the shared email block from the unique-token total.
@@ -54,6 +56,11 @@ class _NodeResponse(BaseModel):
 
 class _ProviderError(Exception):
     """The Ollama backend raised; the caller turns this into ErrorKind provider_error."""
+
+
+def _calls_json(resp: _NodeResponse) -> str:
+    """The node's tool calls as text, for the output split (see src/tokens.py)."""
+    return json.dumps([{"name": c.name, "arguments": c.args} for c in resp.calls]) if resp.calls else ""
 
 
 def _chat_tools(
@@ -87,7 +94,12 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
     client = ollama.Client(host=cfg.ollama_url)
     server = MockMCPServer(email)
     prompt_tokens: list[int] = []
+    # Fixed by the graph, unlike the loop's, which are whatever it chose to call.
+    call_roles: list[str] = []
     tokens_out = 0
+    tokens_out_pre = 0
+    tokens_out_post = 0
+    split_exact = True
     # KV high-water mark. Nodes are independent prompts, so the peak is the largest
     # single node, not the sum — that is the whole memory argument for the graph.
     peak_context_tokens = 0
@@ -110,6 +122,10 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
             tokens_in_cumulative=sum(prompt_tokens),
             tokens_in_unique=unique_tokens(),
             tokens_out=tokens_out,
+            call_roles=call_roles,  # type: ignore[arg-type]
+            tokens_out_pre=tokens_out_pre,
+            tokens_out_post=tokens_out_post,
+            tokens_out_split="exact" if split_exact else "estimated",
             peak_context_tokens=peak_context_tokens,
             error=error,
             warnings=warnings,
@@ -132,7 +148,12 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"gather_context: {exc}"))
     prompt_tokens.append(gathered.tokens_in)
+    call_roles.append("gather")
     tokens_out += gathered.tokens_out
+    _pre, _post, _exact = split_output(gathered.tokens_out, gathered.content, _calls_json(gathered))
+    tokens_out_pre += _pre
+    tokens_out_post += _post
+    split_exact = split_exact and _exact
     peak_context_tokens = max(peak_context_tokens, gathered.tokens_in + gathered.tokens_out)
 
     observations: list[dict[str, Any]] = []
@@ -180,7 +201,12 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"decide: {exc}"))
     prompt_tokens.append(decided.tokens_in)
+    call_roles.append("decide")
     tokens_out += decided.tokens_out
+    _pre, _post, _exact = split_output(decided.tokens_out, decided.content, _calls_json(decided))
+    tokens_out_pre += _pre
+    tokens_out_post += _post
+    split_exact = split_exact and _exact
     peak_context_tokens = max(peak_context_tokens, decided.tokens_in + decided.tokens_out)
 
     draft: str | None = None
@@ -237,6 +263,10 @@ def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
         tokens_in_cumulative=sum(prompt_tokens),
         tokens_in_unique=unique_tokens(),
         tokens_out=tokens_out,
+        call_roles=call_roles,  # type: ignore[arg-type]
+        tokens_out_pre=tokens_out_pre,
+        tokens_out_post=tokens_out_post,
+        tokens_out_split="exact" if split_exact else "estimated",
         peak_context_tokens=peak_context_tokens,
         warnings=warnings,
         invocations=server.invocations,

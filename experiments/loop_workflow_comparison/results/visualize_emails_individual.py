@@ -73,6 +73,18 @@ def _(Any, mo, names, payload):
             "the graph's shared email block",
         ),
         "tokens_out": ("generated tokens", "—"),
+        "tokens_out_pre": (
+            "prose generated before the tool call",
+            "The only generated tokens that can steer the route — the model conditions its "
+            "choice on them. A loop writes these; a graph node emits the tool call with no "
+            "prose at all",
+        ),
+        "tokens_out_post": (
+            "the tool call itself: name and arguments",
+            "Draft, actions or reason. Emitted after the tool name, so it cannot change the "
+            "route — a cost, not a decision. Estimated when one call mixed prose and a tool "
+            "call (`tokens_out_split`)",
+        ),
         "wall_clock_ms": (
             "time in the scored region",
             "Rough. The model is warmed up first so load time doesn't land on email #1 alone "
@@ -125,6 +137,24 @@ def _(Any, mo, names, payload):
             lines.append(f"| `{metric}` | {cells} | {ratio} |")
         return "\n".join(lines)
 
+    ROLE_ORDER = ("fetch", "gather", "decide", "none")
+
+    def role_table(summaries: list[dict[str, Any]]) -> str:
+        """Input tokens grouped by what the call was for. The graph's roles are fixed by
+        its nodes; the loop's are inferred from the tools it chose."""
+        head = " | ".join(names.get(str(s["setup"]), s["label"]) for s in summaries)
+        lines = [f"| Call role | {head} |", "| --- | " + " | ".join("---" for _ in summaries) + " |"]
+        for role in ROLE_ORDER:
+            if not any(s.get("calls_by_role", {}).get(role) for s in summaries):
+                continue
+            cells = " | ".join(
+                f"{s.get('tokens_in_by_role', {}).get(role, 0):,} "
+                f"({s.get('calls_by_role', {}).get(role, 0)} calls)"
+                for s in summaries
+            )
+            lines.append(f"| `{role}` | {cells} |")
+        return "\n".join(lines)
+
     summaries = sorted(payload.get("summary", []), key=lambda s: s["setup"])
     notes = "\n".join(
         f"| `{k}` | {counts} | {caveat} |" for k, (counts, caveat) in COST_NOTES.items()
@@ -133,6 +163,17 @@ def _(Any, mo, names, payload):
     cost_view = mo.vstack(
         [
             mo.md(cost_table(summaries)) if summaries else mo.md("*No `summary` block.*"),
+            mo.md("**Input tokens by call role**"),
+            mo.md(role_table(summaries))
+            if any(s.get("calls_by_role") for s in summaries)
+            else mo.md("*This results file predates call-role bucketing; re-run to populate.*"),
+            mo.md(
+                "*`fetch` is free for the graph — it dispatches `get_new_email` in code — so "
+                "the headline input-token gap shrinks a lot once that row is set aside. Note "
+                "the call counts: excluding fetch, the graph can make more calls than the loop "
+                "and still spend fewer tokens, because its prompts neither carry seven tool "
+                "schemas nor re-send a transcript.*"
+            ),
             mo.md(
                 "*Tokens and time sum across every email of every run; `peak_context_tokens` "
                 "and `memory` take the **max** — a setup needs its worst email, not the total. "
@@ -600,6 +641,9 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
                     f"**Category** `{email['category'] or '—'}`"
                     + (f" · **Difficulty** `{email['difficulty']}`" if email["difficulty"] else "")
                     + (f"  \n**Note** {email['note']}" if email["note"] else "")
+                    # Below Note: the note is the answer key, the scenario is the setting.
+                    # Reading the scenario after it keeps the answer from framing the setup.
+                    + (f"  \n**Scenario** {email.get('scenario') or ''}" if email.get("scenario") else "")
                 ),
                 mo.accordion(
                     {

@@ -156,6 +156,18 @@ ROUTE_TOOLS = {"reply", "no_action", "flag_for_human"}
 READ_TOOLS = {"check_calendar_available", "check_unknown_sender", "get_note"}
 
 
+def call_role(tool_names: list[str]) -> str:
+    """What a model call was for, from the tools it chose. Precedence matters: a turn
+    that gathered and then routed is a decide turn, because that is what it settled."""
+    if any(n in ROUTE_TOOLS for n in tool_names):
+        return "decide"
+    if any(n in READ_TOOLS for n in tool_names):
+        return "gather"
+    if "get_new_email" in tool_names:
+        return "fetch"
+    return "none"
+
+
 def tools_for(names: set[str]) -> list[dict[str, Any]]:
     """The subset of TOOLS with the given names, for exposing a per-node tool set.
 

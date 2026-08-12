@@ -8,11 +8,21 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from src import setup1_react_local, setup2_graph_local
+from src import driver
 from src.dataset import load_emails
 from src.memory import CalibrationError, KVProfile, MemoryFootprint, OllamaMemoryProfiler
 from src.metrics import score_labels, summarize
-from src.models import ClassCounts, Distribution, Email, LabelMetrics, RunResult, SetupSummary
+from src.models import (
+    ClassCounts,
+    Distribution,
+    Email,
+    LabelMetrics,
+    RunConfig,
+    RunResult,
+    SetupSummary,
+)
+from src.setup2_graph_local import GATHER_SUFFIX
+from src.tokens import ProbeError, PromptProbe, probe_wrapper
 
 console = Console()
 
@@ -28,6 +38,7 @@ def _make_output_path(
     model_local: str,
     runs: int,
     num_ctx: int,
+    email_ids: tuple[str, ...] = (),
 ) -> Path:
     def sanitize(name: str) -> str:
         return name.replace(":", "-").replace("/", "-")
@@ -36,8 +47,11 @@ def _make_output_path(
     setups_str = "".join(sorted(active))
     temp_str = f"{temperature:g}"
     think_str = "thinking" if think else "nothinking"
+    # A subset must never land on the full run's filename, or one spot-check silently
+    # replaces the run the notebook and the analysis are reading.
+    subset = f"_only-{'-'.join(sorted(email_ids))}" if email_ids else ""
     filename = (
-        f"{data_stem}_setup{setups_str}_temp{temp_str}_{think_str}_"
+        f"{data_stem}{subset}_setup{setups_str}_temp{temp_str}_{think_str}_"
         f"{sanitize(model_local)}_ctx{num_ctx}_runs{runs}.json"
     )
     return Path(output_dir) / filename
@@ -87,6 +101,21 @@ def _calibrate(model: str, ollama_url: str) -> KVProfile | None:
         f"weights {profile.weights_bytes / 1e9:.2f} GB[/dim]"
     )
     return profile
+
+
+def _probe(model: str, ollama_url: str, num_ctx: int) -> PromptProbe | None:
+    """Measure the graph's node-prompt wrapper so its shared email block can be
+    subtracted from unique tokens. Failure is not fatal: the graph then reports
+    unique == cumulative, which is the old, graph-unfavourable behaviour."""
+    import ollama
+
+    try:
+        probe = probe_wrapper(ollama.Client(host=ollama_url), model, num_ctx, GATHER_SUFFIX)
+    except ProbeError as exc:
+        console.print(f"[yellow]Prompt probe failed ({exc}); graph unique == cumulative.[/yellow]")
+        return None
+    console.print(f"[dim]Node prompt wrapper: {probe.wrapper_tokens} tokens[/dim]")
+    return probe
 
 
 def _peak_mb(footprint: MemoryFootprint | None) -> str:
@@ -267,6 +296,12 @@ def cli() -> None:
     default=False,
     help="Skip the warm-up call, letting model load time land on the first email.",
 )
+@click.option(
+    "--email",
+    "email_ids",
+    multiple=True,
+    help="Run only these email ids (repeatable), for spot-checking one item.",
+)
 def run(
     setups: tuple[str, ...],
     ollama_url: str,
@@ -278,16 +313,22 @@ def run(
     data_path: str,
     output_dir: str,
     no_warm_up: bool,
+    email_ids: tuple[str, ...],
 ) -> None:
     """Run one or more experiment setups against the email dataset."""
     active = {"1", "2"} if "all" in setups else set(setups)
 
     emails: list[Email] = load_emails(data_path)
+    if email_ids:
+        unknown = sorted(set(email_ids) - {e.id for e in emails})
+        if unknown:
+            raise click.BadParameter(f"not in {data_path}: {', '.join(unknown)}", param_hint="--email")
+        emails = [e for e in emails if e.id in set(email_ids)]
     console.print(f"[bold]Loaded {len(emails)} emails from {data_path}[/bold]")
     skipped_email_ids = [email.id for email in emails if not email.body.strip()]
 
     out_path = _make_output_path(
-        output_dir, data_path, active, temperature, think, model_local, runs, num_ctx
+        output_dir, data_path, active, temperature, think, model_local, runs, num_ctx, email_ids
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     partial_path = out_path.with_suffix(".partial.jsonl")
@@ -299,46 +340,26 @@ def run(
     if not no_warm_up:
         _warm_up(model_local, ollama_url, num_ctx)
 
+    cfg = RunConfig(
+        model=model_local,
+        ollama_url=ollama_url,
+        temperature=temperature,
+        think=think,
+        num_ctx=num_ctx,
+        prompt_probe=_probe(model_local, ollama_url, num_ctx) if "2" in active else None,
+    )
+
     # all_results[setup_id] = list of runs, each run is list[RunResult]
-    all_results: dict[int, list[list[RunResult]]] = {}
-
     with partial_path.open("w") as fh:
-        for run_idx in range(runs):
-            if runs > 1:
-                console.print(f"\n[bold]Run {run_idx + 1}/{runs}[/bold]")
-
-            def checkpoint(result: RunResult, _run_idx: int = run_idx) -> None:
-                _checkpoint(fh, _run_idx, result)
-
-            if "1" in active:
-                console.print("\n[cyan]Running setup 1: ReAct loop, local 9B…[/cyan]")
-                all_results.setdefault(1, []).append(
-                    setup1_react_local.run(
-                        emails,
-                        model_local,
-                        ollama_url,
-                        temperature,
-                        think,
-                        num_ctx,
-                        profile,
-                        checkpoint,
-                    )
-                )
-
-            if "2" in active:
-                console.print("\n[cyan]Running setup 2: Graph workflow, local 9B…[/cyan]")
-                all_results.setdefault(2, []).append(
-                    setup2_graph_local.run(
-                        emails,
-                        model_local,
-                        ollama_url,
-                        temperature,
-                        think,
-                        num_ctx,
-                        profile,
-                        checkpoint,
-                    )
-                )
+        console.print(f"\n[cyan]Running setups {', '.join(sorted(active))}, interleaved…[/cyan]")
+        all_results: dict[int, list[list[RunResult]]] = driver.run_all(
+            emails,
+            sorted(int(s) for s in active),
+            cfg,
+            runs,
+            profile,
+            lambda run_idx, result: _checkpoint(fh, run_idx, result),
+        )
 
     # Summary table (aggregate across all runs)
     table = Table(title="Results", show_header=True)
@@ -349,6 +370,7 @@ def run(
     table.add_column("Tok In (uniq)", justify="right")
     table.add_column("Tokens Out", justify="right")
     table.add_column("Wall ms", justify="right")
+    table.add_column("Reads", justify="right")
     table.add_column("Peak ctx", justify="right")
     table.add_column("Peak MB", justify="right")
     table.add_column("Errors", justify="right")
@@ -368,6 +390,7 @@ def run(
                 tokens_in_unique=s.tokens_in_unique,
                 tokens_out=s.tokens_out,
                 wall_clock_ms=s.wall_clock_ms,
+                read_tool_calls=s.read_tool_calls,
                 errors=s.errors,
                 peak_context_tokens=s.peak_context_tokens,
                 memory=s.memory,
@@ -381,6 +404,7 @@ def run(
             str(s.tokens_in_unique),
             str(s.tokens_out),
             str(s.wall_clock_ms),
+            f"{s.read_tool_calls / (emails_run * len(run_list)):.2f}/em" if emails_run else "-",
             str(s.peak_context_tokens),
             _peak_mb(s.memory),
             str(s.errors),

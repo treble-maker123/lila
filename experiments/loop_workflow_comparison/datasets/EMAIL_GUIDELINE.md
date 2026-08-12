@@ -21,60 +21,130 @@ Regenerate it with:
 make generate-individual
 ```
 
-For the latest distribution on data labels, refer to the experiment README.md document.
-The prompt time is fixed by `src/prompts.py::CURRENT_TIME`, so email dates and
-deadline wording should be internally consistent with that timestamp.
+That writes the blank scaffold and `emails_individual_plan.md`, a per-email table
+of authoring targets. Write against the plan, then validate:
+
+```
+python datasets/scripts/generate_individual.py --check
+```
+
+`--check` is the contract: length bands, note counts, fixture values, deadline
+format, and no boilerplate shared between bodies. Prose guidance alone held none
+of them the first time this set was written by hand.
+
+For the label distribution, see the experiment README. The prompt time is fixed by
+`src/prompts.py::CURRENT_TIME`, so dates and deadline wording must be consistent
+with that timestamp.
 
 #### Fixed conventions
 
-These hold for every item, so nothing in the set turns on who the user is or
-what zone a clock time is in:
+These hold for every item, so nothing turns on who the user is or what zone a
+clock time is in:
 
 - **Inbox owner** — always `Shannon C. <shannon@info4days.edu>` in `to`, and the
   "You" in any quoted thread. Colleagues write from `@info4days.edu`; vendors,
-  services, and scammers keep their own domains,
-- **Time zone** — everything is US Eastern. Dates carry `-0400` and clock times in
-  bodies are written `14:00 ET`. No item should require converting between zones,
-- **Deadlines** — `label.actions[].deadline` is an absolute date (`Wed, 29 Jul
-  2026`), optionally with a time (`Thu, 30 Jul 2026 15:00`) or `EOD`. Never
-  `today` or `tomorrow`, even when the body says it that way,
-- **Action verbs** — one verb per item. Split `upload or send` into the verb that
-  the email actually requires; scoring compares one action per item on both sides,
+  services and scammers keep their own domains,
+- **Time zone** — everything is US Eastern. Dates carry `-0400` and clock times
+  are written `14:00 ET`, so no item requires converting between zones,
+- **Deadlines** — `label.actions[].deadline` is absolute (`Wed, 29 Jul 2026`),
+  optionally with a time or `EOD`. Never `today` or `tomorrow`, even when the body
+  says it that way,
+- **Action verbs** — one verb per item. Split `upload or send` into the verb the
+  email actually requires,
 - **Newlines** — bodies use real `\n` escapes, not literal backslash-n.
 
 #### Length
 
-Bodies run roughly 120-750 words. Diversity matters more than any single target:
-mix short transactional asks with long threads and long promotional footers, and
-do not let length correlate with category. Promotional mail spans the full range.
+Bodies run 120-750 words in one of four bands, assigned per email by the plan:
+S 120-180, M 200-350, L 400-550, XL 600-750.
 
-`get_note` returns vary the same way. Most entries are one-line facts, but a few
-emails carry a long pasted artifact — meeting minutes, a legal review, a week of
-standups — running 100-150 words on its own. A note set where every entry is the
-same terse length is unrealistic and makes the relevant one too easy to spot.
+The band is not a matter of taste. An early round put every body between 120 and
+153 words, which cannot test a hypothesis about context length and makes
+`peak_context_tokens` a constant.
 
-The generated scaffold leaves these fields blank for hand-written content:
-`headers`, `body`, `scenario`, `note`, `difficulty`, and `tool_returns`. Fill
-those fields in the guideline process. Do not overwrite the scaffolded
-`label.classification`, `label.next_step`, or `notes_conflict` values.
+Mix short transactional asks with long threads and long promotional footers.
+Length must not correlate with category or route, and promotional mail spans all
+four bands.
+
+Every band must carry all three routes, which `--check` enforces. Length is the
+hypothesis's independent variable, so a band holding only one or two routes makes
+"degrades on long emails" indistinguishable from "gets that route wrong".
+
+Expand a body with thread history or footer that leaves the ask and the label
+untouched. Never expand it by adding a second ask.
+
+`get_note` returns vary the same way. Most entries are one-line facts, while a few
+emails carry a 100-150 word pasted artifact — minutes, a legal review, a week of
+standups — because uniformly terse notes make the relevant one too easy to spot.
+
+#### Fields
+
+The scaffold leaves these blank for hand-written content: `headers`, `body`,
+`scenario`, `note`, `difficulty`, `label.actions`, and the `notes` list inside
+`tool_returns.get_note`.
+
+Everything else it writes is a balance constraint and must not be edited:
+`label.next_step`, `category`, `notes_conflict`, and the two boolean fixtures.
+
+Bodies carry email prose and nothing else; commentary about what an item tests
+goes in `note`. An early round appended annotator paragraphs to the bodies, which
+went into the prompt and named the route.
+
+`--check` rejects any line over eight words shared by two bodies.
 
 `scenario` and `note` are different fields and must not collapse into each other:
 
 - `scenario` is the situation — who these people are, what they are in the middle
   of, why this email arrived now. One or two sentences, readable before the body,
-  and it must not give the route away. It exists so someone reviewing a long
-  thread can follow it without reconstructing the backstory,
-- `note` is the answer key — what makes the item hard, what resolves it, which
+  and it must not give the route away,
+- `note` is the answer key — what makes the item hard, what resolves it, and which
   distractors are deliberate.
 
 Write `scenario` first, then derive `headers`, `body`, `tool_returns`,
-`difficulty`, `label.actions`, and `note` from it. The scaffold fixes the route
-before any prose exists, so body-first authoring bends the email to hit its
-label. If the scenario doesn't land on the scaffolded `next_step`, rewrite the
-scenario, not the label.
+`difficulty`, `label.actions` and `note` from it. The scaffold fixes the route
+before any prose exists, so body-first authoring bends the email to hit its label.
 
-The generator refuses to overwrite a dataset whose bodies are already filled in;
-pass `--force` only when discarding that work is the intent.
+If the scenario doesn't land on the scaffolded `next_step`, rewrite the scenario,
+not the label.
+
+The generator refuses to overwrite a dataset whose bodies are already filled in.
+Pass `--force` only when discarding that work is the intent.
+
+#### Routing without ambiguity
+
+The agent sees three things: the email, the tool returns, and `ROUTING_POLICY` in
+`src/prompts.py`. The gold route has to follow from those.
+
+If a careful reader can argue two routes from the body and the policy, the item is
+a coin flip. It contributes variance to a setup comparison and no signal, so fix
+the email rather than the answer key.
+
+The usual cause is a rule that lives only in the annotator's head — "the agent may
+not decline on the user's behalf", "this is too consequential to answer". The
+policy has no notion of severity, so stakes alone never make an item
+`flag_for_human`.
+
+Write to these shapes:
+
+| Route | Unambiguous when | Test |
+| --- | --- | --- |
+| `reply` | The answer is a fact already sitting in the email, the thread, or a tool return | The reply can be written from text the agent has read |
+| `flag_for_human` | Finishing it needs a system the agent has no tool for: paying, signing, buying, booking, submitting to a portal | Name the tool that would do it — there isn't one |
+| `flag_for_human` | The answer is a preference or judgment nobody wrote down: picking between options, or moving a commitment already made | No text the agent can reach contains it |
+| `no_action` | Nothing is asked of the recipient at all | Delete the email unread and nothing breaks |
+
+Two scheduling asks that look alike and are not:
+
+- The sender asks whether an hour is free and will do the booking themselves.
+  `check_calendar_available` answers that, so it is `reply` whichever way the value
+  comes back,
+- The sender asks the recipient to *take* the slot. Accepting or declining is a
+  commitment and the tool only reports the conflict, so the body must say what the
+  agent cannot see and the route is `flag_for_human`.
+
+A calendar value of `false` does not by itself make an item `flag_for_human`. When
+an unavailable slot is meant to force the flag, the email has to name what is
+missing.
 
 #### Seed References
 
@@ -106,93 +176,94 @@ pass `--force` only when discarding that work is the intent.
 
 #### Generation Rules
 
-- For `promotional` items, the sender never asks for anything — no request, no
-  hidden ask. Most are `no_action`, but keep two where a standing `get_note`
-  preference turns the offer into a task the agent cannot do (buying), routing
-  `flag_for_human` with the offer window as the deadline. No category may map
-  one-to-one onto a route, or that route is free to any model that recognises the
-  shape. Give some of the `no_action` promotional items notes too, so notes on
-  promotional mail are not themselves the tell.
-- For `fyi` items, half are non-actionable (`no_action`); the other half end on a
-  question the agent can answer from the email or `get_note`, routing `reply`.
-- For `single-ask` items, include exactly one ask. If the answer is available in
-  the email or `get_note`, route `reply`; if the request is missing context,
-  contradictory, or out of scope, route `flag_for_human`.
-- For `multi-ask` items, include 2-3 distinct asks. Mix easy and hard asks when
-  useful, but keep the final route consistent with whether the user can answer
-  directly or needs human intervention.
-- For `buried` items, make the ask appear in the latest message of a thread and
-  require earlier context to understand it. The subject alone should not reveal
-  the answer.
-- For `suspicious` items, use scam/phishing/extortion language, an unknown or
-  spoofed sender, and no legitimate action item. Route to `flag_for_human`.
-- Populate `tool_returns` explicitly for every email. Default to known sender,
-  available calendar, and `{"notes": []}` unless the email is intentionally about
-  sender trust, scheduling, or hidden context. `get_note` should carry prior
-  context only when it changes the route.
-- Keep each read tool falsifiable — a fixture that never varies tests nothing:
-  - `check_calendar_available` must be load-bearing in both directions. Include
-    cases where availability settles a reply, cases where an unavailable slot
-    rules out the easy answer but leaves a human decision, and cases where the
-    calendar result is deliberately irrelevant because the email says
-    availability is beside the point,
-  - `check_unknown_sender` must not be a proxy for "junk". Most promotional and
-    all suspicious mail is `known = false`, so the set deliberately breaks the
-    correlation both ways: include promotional mail from known vendors and
-    legitimate action mail from unknown senders across more than one route,
-  - If a spoofing case is included, make the fixture reflect the sender address
-    honestly. A message may impersonate a real colleague while still coming from
-    an address that genuinely is not a contact.
-- Treat `get_note` as retrieved memory: notes should be relevant to the scenario,
-  but may include stale, adjacent, or contradictory details that must be reconciled.
-- The four items scaffolded `notes_conflict: true` go further: their notes must be
-  actively misleading, so that an agent which fetches them and takes them at face
-  value routes *worse* than one that decided the email needed no lookup. Use a
-  superseded fact, a note about an adjacent matter that reads as if it applies, or
-  two notes that disagree with no tiebreaker in the email. Everywhere else notes
-  help, which makes fetching them unconditionally free — these are the items that
-  price it. The email must still be answerable: the correct route stays derivable
-  from the body, so the contradiction is a trap, not an unanswerable question.
-  Keep them spread across routes; if all four were `flag_for_human`, "notes
+- `promotional` senders never ask for anything — no request, no hidden ask.
+- Most promotional items are `no_action`. Keep a couple where a standing `get_note`
+  preference turns the offer into a task the agent cannot do, routing
+  `flag_for_human` with the offer window as the deadline.
+- No category may map one-to-one onto a route, or that route is free to any model
+  that recognises the shape.
+- Give some `no_action` promotional items notes too, so notes on promotional mail
+  are not themselves the tell.
+- `fyi` items split in half: non-actionable ones route `no_action`, and the rest
+  end on a question the agent can answer from the email or `get_note`, routing
+  `reply`.
+- `single-ask` items carry exactly one ask. Route `reply` when the answer is in the
+  email or `get_note`, and `flag_for_human` when it is missing, contradictory or
+  out of scope.
+- `multi-ask` items carry 2-3 distinct asks. Mix easy and hard ones, but keep the
+  route consistent with whether the agent can answer everything directly.
+- `buried` items put the ask in the latest message of a thread and require earlier
+  context to understand it. The subject alone must not reveal the answer.
+- `suspicious` items use scam, phishing or extortion language with an unknown or
+  spoofed sender and no legitimate action item. Route `flag_for_human`.
+- The two boolean fixtures come from the scaffold, not the author. Write the email
+  that fits the fixture, or the set ends up with fixtures that quietly predict the
+  answer.
+- `check_calendar_available` is load-bearing in both directions, and the plan gives
+  each email a role: `settles` (availability answers the ask, value true), `blocks`
+  (an unavailable slot rules out the easy answer, value false), or `irrelevant`
+  (written so the value changes nothing).
+- Irrelevant items split across both values. An early round returned `true` on all
+  but one email, which made the tool free evidence for `reply`.
+- `check_unknown_sender` must not be a proxy for "junk". All suspicious mail is
+  `known = false`, so break the correlation both ways: promotional mail from known
+  vendors, and legitimate mail from unknown senders on all three routes.
+- If a spoofing case is included, make the fixture reflect the sender address
+  honestly. A message may impersonate a colleague while genuinely coming from an
+  address that is not a contact.
+- Whether `get_note` returns anything must not predict the route; every route sits
+  between 30% and 65% notes-bearing.
+- Notes on `no_action` and `flag_for_human` items stay relevant without unlocking a
+  reply.
+- Treat `get_note` as retrieved memory. Notes should be relevant to the scenario,
+  but may include stale, adjacent or contradictory details that must be reconciled.
+- Items scaffolded `notes_conflict: true` go further: their notes must be actively
+  misleading, so an agent that fetches them and takes them at face value routes
+  *worse* than one that decided the email needed no lookup.
+- Use a superseded fact, a note about an adjacent matter that reads as if it
+  applies, or two notes that disagree with no tiebreaker in the email.
+- Everywhere else notes help, which makes fetching them unconditionally free. These
+  items are what price it, and `--check` requires enough of them to clear the noise
+  floor of a 50-email set.
+- The email must still be answerable. The correct route stays derivable from the
+  body, so the contradiction is a trap rather than an unanswerable question.
+- Keep them spread across routes. If they were all `flag_for_human`, "notes
   conflict" would just be a synonym for the route.
 - `no_action` means the email needs nothing. When a case is genuinely ambiguous,
   label it `flag_for_human` — surfacing beats burying, and it keeps `no_action`
   from meaning "couldn't tell".
-- Difficulty rubric:
-  - `easy` for direct cases with an obvious answer,
-  - `medium` for one lookup or mild ambiguity,
-  - `hard` for buried context, contradiction, or multi-step judgment.
+- Difficulty rubric: `easy` for direct cases with an obvious answer, `medium` for
+  one lookup or mild ambiguity, `hard` for buried context, contradiction or
+  multi-step judgment.
+- Difficulty must come from the scenario, never from an incoherent one. Every item
+  has to read end to end with consistent speakers, a thread whose messages follow
+  from each other, and an ask someone would plausibly send.
 - Bodies may phrase deadlines naturally ("before Friday, 31 July"), but the
-  `deadline` field is always absolute. See Fixed conventions above.
-- Difficulty must come from the scenario, never from an incoherent one. Every
-  item has to make sense read end to end: consistent speakers, a thread whose
-  messages follow from each other, and an ask that someone would plausibly send.
+  `deadline` field is always absolute.
 - `note` is the answer key, not a summary. State what makes the item hard, what
-  resolves it, and which distractors are deliberate — enough that a reader can
-  tell a model's mistake from a dataset bug. Never write instructions to the
-  agent into `get_note`; a note that says "flag this to the user" leaks the label.
-
-> [Proposed for review] Favor `flag_for_human` whenever the task would require
-> external systems, payment, signing, legal approval, or another action the
-> agent cannot safely complete itself.
+  resolves it and which distractors are deliberate, so a reader can tell a model's
+  mistake from a dataset bug.
+- Never write instructions to the agent into `get_note`. A note that says "flag
+  this to the user" leaks the label.
 
 ## Batch E-mails
 
-The individual E-mail results are interesting enough, this will be postponed to future works.
+The individual E-mail results are interesting enough, so this is postponed to
+future works.
 
-The batch set targets a different MCP endpoint that returns many E-mails per
-call instead of one. Everything about individual items — conventions, labels,
-tool returns — carries over unchanged; only the packaging differs.
+The batch set targets a different MCP endpoint that returns many E-mails per call
+instead of one. Conventions, labels and tool returns carry over unchanged; only the
+packaging differs.
 
 - **Size** — each data point is a batch of 3-10 E-mails.
 - **Count** — 40 data points, built as combinations and permutations of items in
-  `emails_individual.json`. Reuse across batches is expected; vary batch size,
-  category mix, and ordering so neither is predictable.
-- **Composition** — a data point references the individual E-mails by ID; do not
-  duplicate `headers`, `body`, or `tool_returns`. Labels stay per-E-mail.
-- **Cross-E-mail review** — when assembling a batch, read all of its E-mails
-  together and reject combinations whose details conflict in ways that would
-  change how an agent handles them: the same deadline or meeting stated
-  differently, two E-mails contradicting each other on the same fact, or one
-  item's `get_note` answering another item's ask. Contradictions inside a single
-  E-mail are still fair game; contradictions *across* the batch are dataset bugs.
+  `emails_individual.json`. Reuse across batches is expected, so vary batch size,
+  category mix and ordering.
+- **Composition** — a data point references the individual E-mails by ID and does
+  not duplicate `headers`, `body` or `tool_returns`. Labels stay per-E-mail.
+- **Cross-E-mail review** — read a batch's E-mails together and reject combinations
+  whose details conflict in ways that would change how an agent handles them: the
+  same deadline stated differently, two E-mails contradicting each other on one
+  fact, or one item's `get_note` answering another item's ask.
+- Contradictions inside a single E-mail are still fair game; contradictions *across*
+  a batch are dataset bugs.

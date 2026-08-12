@@ -13,15 +13,12 @@ differences from setup 1, which is what a 1-vs-2 delta attributes to.
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
 from typing import Any
 
 import ollama
 from pydantic import BaseModel
 
 from src.mcp_server import READ_TOOLS, ROUTE_TOOLS, MockMCPServer, UnknownToolError, tools_for
-from src.memory import KVProfile
 from src.models import (
     DEFAULT_DRAFT,
     Action,
@@ -29,14 +26,17 @@ from src.models import (
     Email,
     InferenceResult,
     Label,
-    Metrics,
     NodeDebug,
+    RunConfig,
     RunError,
-    RunResult,
     RunWarning,
 )
 from src.prompts import GATHER_POLICY, ROUTING_INSTRUCTION, ROUTING_POLICY, render_tool_result
 from src.setup1_react_local import parse_actions
+
+# The gather node's prompt is the email followed by this. Named so src/tokens.py can
+# price the wrapper and subtract the shared email block from the unique-token total.
+GATHER_SUFFIX = f"\n\nBefore deciding how to handle this email:\n{GATHER_POLICY}"
 
 
 class _ToolCall(BaseModel):
@@ -57,22 +57,16 @@ class _ProviderError(Exception):
 
 
 def _chat_tools(
-    client: ollama.Client,
-    model: str,
-    temperature: float,
-    think: bool,
-    num_ctx: int,
-    prompt: str,
-    tool_names: set[str],
+    client: ollama.Client, cfg: RunConfig, prompt: str, tool_names: set[str]
 ) -> _NodeResponse:
     """One node turn: prompt the model with this node's tools and read back its calls."""
     try:
         resp = client.chat(
-            model=model,
+            model=cfg.model,
             messages=[{"role": "user", "content": prompt}],
             tools=tools_for(tool_names),
-            think=think,
-            options={"temperature": temperature, "num_ctx": num_ctx},
+            think=cfg.think,
+            options={"temperature": cfg.temperature, "num_ctx": cfg.num_ctx},
         )
     except Exception as exc:
         raise _ProviderError(f"{type(exc).__name__}: {exc}") from exc
@@ -83,16 +77,14 @@ def _chat_tools(
     return _NodeResponse(
         calls=calls,
         content=resp.message.content or "",
-        thinking=getattr(resp.message, "thinking", None) if think else None,
+        thinking=getattr(resp.message, "thinking", None) if cfg.think else None,
         tokens_in=resp.prompt_eval_count or 0,
         tokens_out=resp.eval_count or 0,
     )
 
 
-def run_email(
-    email: Email, model: str, ollama_url: str, temperature: float, think: bool, num_ctx: int
-) -> InferenceResult:
-    client = ollama.Client(host=ollama_url)
+def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
+    client = ollama.Client(host=cfg.ollama_url)
     server = MockMCPServer(email)
     prompt_tokens: list[int] = []
     tokens_out = 0
@@ -102,13 +94,21 @@ def run_email(
     nodes: list[NodeDebug] = []
     warnings: list[RunWarning] = []
 
+    def unique_tokens() -> int:
+        """Cumulative minus the email block, which both node prompts lead with and the
+        decide node therefore never re-evaluates. Falls back to cumulative when the
+        startup probe failed or only one node ran."""
+        if cfg.prompt_probe is None or len(prompt_tokens) < 2:
+            return sum(prompt_tokens)
+        return sum(prompt_tokens) - cfg.prompt_probe.shared_prefix_tokens(prompt_tokens[0])
+
     def failed(error: RunError) -> InferenceResult:
         """Abandon this email with no routing decision, keeping the cost incurred."""
         return InferenceResult(
             label=Label(next_step="error"),
             prompt_tokens=prompt_tokens,
             tokens_in_cumulative=sum(prompt_tokens),
-            tokens_in_unique=sum(prompt_tokens),
+            tokens_in_unique=unique_tokens(),
             tokens_out=tokens_out,
             peak_context_tokens=peak_context_tokens,
             error=error,
@@ -126,11 +126,9 @@ def run_email(
     # prefill reuses the first node's KV cache. Node-specific instructions go last;
     # anything that varies between nodes must stay after the shared prefix or the
     # cache match breaks at the first differing token.
-    gather_prompt = f"{email_text}\n\nBefore deciding how to handle this email:\n{GATHER_POLICY}"
+    gather_prompt = f"{email_text}{GATHER_SUFFIX}"
     try:
-        gathered = _chat_tools(
-            client, model, temperature, think, num_ctx, gather_prompt, READ_TOOLS
-        )
+        gathered = _chat_tools(client, cfg, gather_prompt, READ_TOOLS)
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"gather_context: {exc}"))
     prompt_tokens.append(gathered.tokens_in)
@@ -178,9 +176,7 @@ def run_email(
         f"\nContext you gathered:\n{obs_text}"
     )
     try:
-        decided = _chat_tools(
-            client, model, temperature, think, num_ctx, decide_prompt, ROUTE_TOOLS
-        )
+        decided = _chat_tools(client, cfg, decide_prompt, ROUTE_TOOLS)
     except _ProviderError as exc:
         return failed(RunError(kind="provider_error", detail=f"decide: {exc}"))
     prompt_tokens.append(decided.tokens_in)
@@ -239,55 +235,10 @@ def run_email(
         ),
         prompt_tokens=prompt_tokens,
         tokens_in_cumulative=sum(prompt_tokens),
-        # Independent node prompts share no cacheable prefix, so there is nothing to
-        # deduplicate: unique == cumulative.
-        tokens_in_unique=sum(prompt_tokens),
+        tokens_in_unique=unique_tokens(),
         tokens_out=tokens_out,
         peak_context_tokens=peak_context_tokens,
         warnings=warnings,
         invocations=server.invocations,
         debug=Debug(nodes=nodes),
     )
-
-
-def run(
-    emails: list[Email],
-    model: str,
-    ollama_url: str,
-    temperature: float,
-    think: bool,
-    num_ctx: int,
-    profile: KVProfile | None,
-    on_result: Callable[[RunResult], None] | None = None,
-) -> list[RunResult]:
-    results: list[RunResult] = []
-    for email in emails:
-        if not email.body.strip():
-            print(f"[setup2] {email.id}: skipped empty email")
-            continue
-        t0 = time.monotonic()
-        inferred = run_email(email, model, ollama_url, temperature, think, num_ctx)
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        if inferred.error:
-            print(f"[setup2] {email.id}: [{inferred.error.kind}]")
-        result = RunResult(
-            setup=2,
-            email_id=email.id,
-            predicted=inferred.label,
-            metrics=Metrics(
-                tokens_in_cumulative=inferred.tokens_in_cumulative,
-                tokens_in_unique=inferred.tokens_in_unique,
-                tokens_out=inferred.tokens_out,
-                wall_clock_ms=elapsed_ms,
-                prompt_tokens=inferred.prompt_tokens,
-                peak_context_tokens=inferred.peak_context_tokens,
-                memory=profile.footprint(inferred.peak_context_tokens) if profile else None,
-            ),
-            error=inferred.error,
-            warnings=inferred.warnings,
-            debug=inferred.debug,
-        )
-        results.append(result)
-        if on_result is not None:
-            on_result(result)
-    return results

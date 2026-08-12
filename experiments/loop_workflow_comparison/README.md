@@ -15,7 +15,11 @@ Common task for local agents, no?
 
 ## Hypothesis
 
-As context grows, a 9B models' routing accuracy degrades less in a workflow than in a ReAct loop, but pays in wall-clock time and total tokens.
+~~As context grows, a 9B models' routing accuracy degrades less in a workflow than in a ReAct loop, but pays in wall-clock time and total tokens.~~ (This is a terribly hypothesis in hindsight because context could be task context and model context. If we're talking about model context, it's irrelevant here. If we're talking about task context, there's engineering solution to loops, e.g. subagents.)
+- Total tokens because loops process minimal new tokens because of caching, graph would need to encode each node separately,
+- Wall-clock time because more new tokens to process.
+
+But I think the initial motivation was that control flow is delegated to computer, so the real hypothesis should be that graph is more consistent.
 
 (Really, just want to get a feel of workflow vs. loop with some scale)
 
@@ -28,7 +32,11 @@ As context grows, a 9B models' routing accuracy degrades less in a workflow than
 
 ### Observations & Learnings
 
-- KV cache makes loops input-token efficient - for short-horizon tasks it ends up consuming less tokens,
+- KV cache makes loops input-token efficient, but graph could also take advantage of that,
+- Ollama's `prompt_eval_count` is cache-independent, so that efficiency shows up in wall clock, not in the token counts (see "Measuring input tokens"),
+- Dispatching calls in code saves token / $$$,
+- The loop does a lot of narration, which leads to more output tokens and longer wall-clock time,
+- The loop's decision is steered by its own narration / reasoning, the graph isn't. Which has implications on consistency,
 
 ## Task
 
@@ -79,26 +87,31 @@ Read / environment (each has a fixed return format):
 to always surface the notes relevant to the email; fixtures may add unrelated notes
 as noise. Reading past the noise is the skill exercised, not finding the right note.
 
-Per-email fixtures (`Email.tool_returns`) map each read tool the email expects to be
-called to its return value, following the shapes above — e.g. a suspicious email sets
-`{"check_unknown_sender": {"known": false}}`. There are no server-side defaults: the
-mock server **raises** on any read-tool call without a matching fixture, so missing
-fixtures or unexpected lookups fail loud rather than silently returning a value. An
-empty `{}` means the email expects no read-tool calls at all.
+Per-email fixtures (`Email.tool_returns`) give every read tool a return value,
+following the shapes above. There are no server-side defaults: the mock server
+**raises** on any read-tool call without a matching fixture, so a typo'd tool name
+fails loud rather than silently returning a value.
+
+Every email in `emails_individual.json` carries all three read fixtures, so a
+spurious lookup is answered rather than punished. That is deliberate — a raise lands
+as an `error`, which is a much harsher and noisier penalty than the mistake deserves.
+The cost of over-gathering is measured instead: `read_tool_calls` is reported per
+setup, and the `notes_conflict` emails are where gathering actively costs accuracy.
 
 Answer / routing:
 
 - `reply(message)` -> the agent can answer directly,
-- `no_action()` -> the email needs nothing,
+- `no_action(reason)` -> the email needs nothing,
 - `flag_for_human(actions)` -> needs doing but out of scope / missing info; `actions`
   (the `{verb, subject, deadline}` items) is optional and may be an empty list.
 
 Exactly one routing tool is expected per email. Calling none is an `error`, not a
 silent `no_action` — a single-shot node offering only `reply`/`flag_for_human`
 cannot express no-action by staying quiet, and in the loop silence was
-indistinguishable from the model wandering off. Note `no_action()` is the only
-routing tool with no arguments, so it is also the cheapest to emit; watch whether
-it gets over-selected on emails that genuinely need action.
+indistinguishable from the model wandering off. All three take an argument: with
+`no_action()` empty it was the shortest token path of the three and got selected for
+reasons unrelated to the email. If a setup emits several routing calls in one
+message, the first wins, in both setups.
 
 Pipeline: `get_new_email -> gather context -> reply | no_action | flag_for_human`.
 
@@ -133,7 +146,11 @@ Multi-ask and buried E-mails skew toward `flag_for_human` as the next step, so w
 
 **Route balance.** `next_step` is held close enough to balanced that no route is a free default: 17 `reply` / 19 `flag_for_human` / 14 `no_action`. An earlier 40-email set was 47.5% `flag_for_human`, which handed an always-flag baseline 0.475 and flattered any setup biased that way — and the routing policy already names `flag_for_human` as the tie-break when unsure, so the class prior and the policy were pushing in the same direction and could not be told apart. The policy bias stays; the prior does not. Report accuracy against the majority-class baseline, and prefer macro-F1 over accuracy when a run's errors are unevenly spread.
 
-**Contradictory notes.** Four E-mails (`notes_conflict: true`) carry a `get_note` fixture built to mislead — stale, contradictory, or about a neighbouring matter — spread across two `reply` and two `flag_for_human` items so the trait does not correlate with a route. They exist because every other E-mail's notes are relevant and free to fetch, which makes unconditional context-gathering optimal by construction and hands the graph setup its main advantage for free. These are the items where gathering has to be a judgment call.
+**Contradictory notes.** Seven E-mails (`notes_conflict: true`) carry a `get_note` fixture built to mislead — stale, contradictory, or about a neighbouring matter — spread across three `reply`, two `flag_for_human` and two `no_action` items so the trait does not correlate with a route. They exist because every other E-mail's notes are relevant and free to fetch, which makes unconditional context-gathering optimal by construction and hands the graph setup its main advantage for free. These are the items where gathering has to be a judgment call. Seven rather than four: at 50 emails the noise floor is ~3.5 emails, and four traps against ~20 emails where notes help could not resolve the penalty they exist to price. It is still 7 against 17 — the incentive to gather unconditionally is reduced, not removed.
+
+**Body length.** Bands run S/M/L/XL (120-180, 200-350, 400-550, 600-750 words) and every band carries all three routes. Length is the independent variable in the hypothesis, so a band holding only one or two routes would make "degrades on long emails" indistinguishable from "gets that route wrong" — the second round had no `reply` at XL at all.
+
+**Category is not balanced against route, and reading results has to allow for it.** `no_action` occurs only in promotional and fyi; suspicious is 5/5 `flag_for_human`; fyi never flags. Category is not given to the agent, but it is readable off the email, so a guesser that recognises the shape and takes each category's most common route scores 32/50 = 64% without calling a tool. Report accuracy against **that** number, not only against the 38% majority-class baseline. Balancing route within category is the fix and has not been done.
 
 ## Metrics
 
@@ -149,8 +166,9 @@ where a ratio cannot.
 | Metric | Counts | Caveat |
 | --- | --- | --- |
 | `tokens_in_cumulative` | every call's prompt, summed | A loop re-sends its conversation each turn, so an N-turn loop counts the shared prefix N times. What an uncached, per-call-billed API charges; **overstates** the loop locally, where the KV cache avoids the re-reading |
-| `tokens_in_unique` | each prompt token once | For the loop, just the final call's prompt — the message list only grows, so every earlier prompt is a prefix of it. For the graph the node prompts share no cacheable prefix, so it equals cumulative. **Understates** the loop |
+| `tokens_in_unique` | each prompt token once | For the loop, just the final call's prompt — the message list only grows, so every earlier prompt is a prefix of it. The graph's two node prompts lead with the same email block by construction, so that block is counted once. **Understates** the loop |
 | `tokens_out` | generated tokens | — |
+| `read_tool_calls` | calls to `get_note` / `check_calendar_available` / `check_unknown_sender` | Gathering is +EV on all but seven emails, so accuracy alone hides how much context a setup bought to get it. Routing and `get_new_email` are excluded: one of each per email by construction |
 | `wall_clock_ms` | time in the scored region | Rough. The model is warmed up first so load time doesn't land on email #1 alone (`--no-warm-up` to disable) |
 | `peak_context_tokens` | KV occupancy in tokens: `max` over calls of prompt + generated | What must be resident at once, not what was processed. The loop's grows with its transcript; the graph's is its largest single node |
 | `memory` | that peak in bytes: `kv_bytes` + `weights_bytes` = `total_bytes` | Weights are equal across setups, so the difference is all `kv_bytes`. Null if calibration failed |
@@ -158,6 +176,23 @@ where a ratio cannot.
 Report both input-token numbers; the gap between them is the loop's re-reading
 overhead. Token and time metrics sum across emails; memory takes the **max** — a
 setup needs its worst email, not the total.
+
+#### Measuring input tokens
+
+Ollama's `prompt_eval_count` reports the **full** prompt on every call, whether or
+not the KV cache already held a prefix of it — probed against the live server rather
+than assumed. Send a prompt twice back to back and the count is identical both times.
+So `tokens_in_cumulative` and `peak_context_tokens` mean what they say, and the
+memory numbers derived from the peak are sound.
+
+The flip side is that the provider will not deduplicate a shared prefix for you. The
+graph's node prompts are built to lead with the same email block precisely so the
+second node's prefill reuses the first node's cache; counting both prompts in full
+charged it twice. `src/tokens.py` measures that block by difference (a node prompt
+costs `HEAD + email + suffix + TAIL`, the suffix alone costs `HEAD + suffix + TAIL`)
+using one extra call at startup, and subtracts it once. The measurement is short of
+the true shared prefix by `HEAD`, a few tokens, which errs toward crediting the graph
+with more unique input rather than less.
 
 #### Measuring memory
 
@@ -264,6 +299,24 @@ read it as "does it carry deadlines at all", not date accuracy.
 ### Draft quality
 
 Out of scope for now, to keep scoring deterministic.
+
+## Scheduling
+
+The setups are **interleaved per email** and the order alternates: setup 1 on e001,
+setup 2 on e001, setup 2 on e002, setup 1 on e002, and so on. Running one setup to
+completion and then the other tied setup to position — whichever went second
+inherited a warmer machine, and the loop's system prompt is identical on every email,
+so its first call per email hit a prefix cache left by the *previous* email while the
+graph's email-led prompts never did. Both landed on `wall_clock_ms` as if they were
+control flow.
+
+The prefix cache is also busted before each unit (one email, one setup) with a short
+throwaway call outside the timed region. Best effort: with `OLLAMA_NUM_PARALLEL > 1`
+the buster may land in a different slot than the run that follows it.
+
+Lowering `--num-ctx` is *not* a way to force cache eviction — it sizes the context
+window, and at 4096 the loop's transcript is silently truncated, which is the failure
+the flag exists to prevent. Leave it at 32768.
 
 ## Caveats
 

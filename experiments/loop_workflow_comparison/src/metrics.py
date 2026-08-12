@@ -30,6 +30,7 @@ def summarize(results: list[RunResult]) -> MetricsSummary:
         tokens_in_unique=sum(r.metrics.tokens_in_unique for r in results),
         tokens_out=sum(r.metrics.tokens_out for r in results),
         wall_clock_ms=sum(r.metrics.wall_clock_ms for r in results),
+        read_tool_calls=sum(r.metrics.read_tool_calls for r in results),
         errors=sum(1 for r in results if r.error is not None),
         peak_context_tokens=max((r.metrics.peak_context_tokens for r in results), default=0),
         memory=peak_memory(results),

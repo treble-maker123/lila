@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import time
-from collections.abc import Callable
-
 import ollama
 
 from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError
-from src.memory import KVProfile
 from src.models import (
     DEFAULT_DRAFT,
     Action,
@@ -17,9 +13,8 @@ from src.models import (
     InferenceResult,
     Label,
     LoopDebug,
-    Metrics,
+    RunConfig,
     RunError,
-    RunResult,
     RunWarning,
 )
 from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM, render_tool_result
@@ -70,10 +65,8 @@ def parse_actions(raw: object, warnings: list[RunWarning]) -> list[Action]:
     return actions
 
 
-def run_email(
-    email: Email, model: str, ollama_url: str, temperature: float, think: bool, num_ctx: int
-) -> InferenceResult:
-    client = ollama.Client(host=ollama_url)
+def run_email(email: Email, cfg: RunConfig) -> InferenceResult:
+    client = ollama.Client(host=cfg.ollama_url)
     server = MockMCPServer(email)
     messages = [
         {"role": "system", "content": _SYSTEM},
@@ -99,11 +92,11 @@ def run_email(
         steps = step + 1
         try:
             resp = client.chat(
-                model=model,
+                model=cfg.model,
                 messages=messages,
                 tools=TOOLS,
-                think=think,
-                options={"temperature": temperature, "num_ctx": num_ctx},
+                think=cfg.think,
+                options={"temperature": cfg.temperature, "num_ctx": cfg.num_ctx},
             )
         except Exception as exc:  # transport/decode/timeout from the backend
             error = RunError(kind="provider_error", detail=f"{type(exc).__name__}: {exc}")
@@ -118,7 +111,7 @@ def run_email(
             LoopDebug(
                 input=[dict(m) for m in messages],
                 output=msg.model_dump(),
-                thinking=getattr(msg, "thinking", None) if think else None,
+                thinking=getattr(msg, "thinking", None) if cfg.think else None,
             )
         )
         messages.append(msg.model_dump())
@@ -155,7 +148,12 @@ def run_email(
             messages.append(
                 {"role": "tool", "content": render_tool_result(name, result), "name": name}
             )
-        # reply / flag_for_human are terminal routing decisions.
+            # First routing call wins, matching the graph's decide node. Without the
+            # break a message holding two routing calls scored its *last* one here and
+            # its *first* one there, so the same output could score differently by setup.
+            if done:
+                break
+        # Routing is terminal.
         if done:
             break
     else:
@@ -202,47 +200,3 @@ def run_email(
         invocations=server.invocations,
         debug=Debug(loops=loops),
     )
-
-
-def run(
-    emails: list[Email],
-    model: str,
-    ollama_url: str,
-    temperature: float,
-    think: bool,
-    num_ctx: int,
-    profile: KVProfile | None,
-    on_result: Callable[[RunResult], None] | None = None,
-) -> list[RunResult]:
-    results: list[RunResult] = []
-    for email in emails:
-        if not email.body.strip():
-            print(f"[setup1] {email.id}: skipped empty email")
-            continue
-        t0 = time.monotonic()
-        inferred = run_email(email, model, ollama_url, temperature, think, num_ctx)
-        elapsed_ms = int((time.monotonic() - t0) * 1000)
-        suffix = f" [{inferred.error.kind}]" if inferred.error else ""
-        print(f"[setup1] {email.id}: {inferred.steps} ReAct loop iteration(s){suffix}")
-        result = RunResult(
-            setup=1,
-            email_id=email.id,
-            predicted=inferred.label,
-            metrics=Metrics(
-                tokens_in_cumulative=inferred.tokens_in_cumulative,
-                tokens_in_unique=inferred.tokens_in_unique,
-                tokens_out=inferred.tokens_out,
-                wall_clock_ms=elapsed_ms,
-                steps=inferred.steps,
-                prompt_tokens=inferred.prompt_tokens,
-                peak_context_tokens=inferred.peak_context_tokens,
-                memory=profile.footprint(inferred.peak_context_tokens) if profile else None,
-            ),
-            error=inferred.error,
-            warnings=inferred.warnings,
-            debug=inferred.debug,
-        )
-        results.append(result)
-        if on_result is not None:
-            on_result(result)
-    return results

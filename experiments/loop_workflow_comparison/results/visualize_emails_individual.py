@@ -8,13 +8,14 @@ app = marimo.App(width="full")
 def _():
     import json
     from collections import Counter
+    from math import comb
     from pathlib import Path
     from statistics import mean
     from typing import Any
 
     import marimo as mo
 
-    return Any, Counter, Path, json, mean, mo
+    return Any, Counter, Path, comb, json, mean, mo
 
 
 @app.cell
@@ -63,12 +64,13 @@ def _(Any, mo, names, payload):
         "tokens_in_unique": (
             "each prompt token once",
             "For the loop, just the final call's prompt — the message list only grows, so every "
-            "earlier prompt is a prefix of it. For the graph the node prompts share no cacheable "
-            "prefix, so it equals cumulative. **Understates** the loop",
+            "earlier prompt is a prefix of it. The graph's two node prompts lead with the same "
+            "email block, which is counted once. **Understates** the loop",
         ),
         "input-token gap": (
             "`cumulative − unique`",
-            "The loop's re-reading overhead. Zero for the graph, whose nodes share no prefix",
+            "Input a perfect prefix cache would not re-evaluate: the loop's re-sent transcript, "
+            "the graph's shared email block",
         ),
         "tokens_out": ("generated tokens", "—"),
         "wall_clock_ms": (
@@ -339,6 +341,132 @@ def _(labels_counts, labels_errors, labels_headline, mo):
 
 
 @app.cell
+def _(Any, comb, labels):
+    def correct_by_email(m: dict[str, Any]) -> dict[str, bool]:
+        """One bool per email, so the two setups pair 1-to-1. With more than one run an
+        email counts as correct on a strict majority of them; a tie is not correct."""
+        return {eid: 2 * n > m["runs"] for eid, n in m["successes"].items()}
+
+    def mcnemar_exact(b: int, c: int) -> float:
+        """Two-sided exact binomial on the discordant pairs. The concordant cells carry
+        no information about which setup is better, so they are not in the test."""
+        n = b + c
+        if n == 0:
+            return 1.0
+        tail = sum(comb(n, k) for k in range(max(b, c), n + 1))
+        return min(1.0, 2 * tail / 2**n)
+
+    def paired() -> dict[str, Any] | None:
+        """The 2x2 agreement matrix, or None unless exactly two setups were scored."""
+        if len(labels) != 2:
+            return None
+        first, second = labels
+        a_ok, b_ok = correct_by_email(first), correct_by_email(second)
+        shared = sorted(set(a_ok) & set(b_ok))
+        cell = lambda x, y: [i for i in shared if a_ok[i] is x and b_ok[i] is y]  # noqa: E731
+        both, only_a, only_b, neither = (
+            cell(True, True),
+            cell(True, False),
+            cell(False, True),
+            cell(False, False),
+        )
+        return {
+            "a": first["label"],
+            "b": second["label"],
+            "emails": len(shared),
+            "both": both,
+            "only_a": only_a,
+            "only_b": only_b,
+            "neither": neither,
+            "p": mcnemar_exact(len(only_a), len(only_b)),
+        }
+
+    return (paired,)
+
+
+@app.cell
+def _(mo, paired):
+    def matrix_table(m: dict) -> str:
+        return "\n".join(
+            [
+                f"| | {m['b']} ✅ | {m['b']} ❌ | total |",
+                "| --- | ---: | ---: | ---: |",
+                f"| **{m['a']} ✅** | {len(m['both'])} | {len(m['only_a'])} | "
+                f"{len(m['both']) + len(m['only_a'])} |",
+                f"| **{m['a']} ❌** | {len(m['only_b'])} | {len(m['neither'])} | "
+                f"{len(m['only_b']) + len(m['neither'])} |",
+                f"| **total** | {len(m['both']) + len(m['only_b'])} | "
+                f"{len(m['only_a']) + len(m['neither'])} | {m['emails']} |",
+            ]
+        )
+
+    def verdict(m: dict) -> str:
+        b, c, p = len(m["only_a"]), len(m["only_b"]), m["p"]
+        better = m["a"] if b > c else m["b"]
+        call = (
+            f"**p = {p:.3f}** — the {b}:{c} split is within what coin flips produce, so this "
+            f"run does not separate the two setups."
+            if p >= 0.05
+            else f"**p = {p:.3f}** — {better} is ahead by more than chance on this dataset."
+        )
+        return (
+            f"McNemar exact, two-sided, on the {b + c} discordant emails "
+            f"({b} + {c}). {call}"
+        )
+
+    def discordant_ids(m: dict) -> str:
+        rows = [
+            (f"{m['a']} only", m["only_a"]),
+            (f"{m['b']} only", m["only_b"]),
+            ("neither", m["neither"]),
+        ]
+        return "\n".join(
+            [
+                "| Right on | n | emails |",
+                "| --- | ---: | --- |",
+                *(
+                    f"| {name} | {len(ids)} | {', '.join(f'`{i}`' for i in ids) or '—'} |"
+                    for name, ids in rows
+                ),
+            ]
+        )
+
+    analysis = paired()
+    analysis_view = (
+        mo.callout(
+            mo.md("Pairwise analysis needs exactly two scored setups."),
+            kind="warn",
+        )
+        if analysis is None
+        else mo.vstack(
+            [
+                mo.md("### Do the setups actually differ?"),
+                mo.md(matrix_table(analysis)),
+                mo.md(verdict(analysis)),
+                mo.md(
+                    "*Both setups see the same emails, so the comparison is paired and the "
+                    "two accuracy figures are not independent samples. Comparing them as if "
+                    "they were overstates the evidence: only the emails the setups disagree "
+                    "on carry any, and at 50 emails there are rarely many. The concordant "
+                    "cells are excluded for that reason, not by oversight.*"
+                ),
+                mo.md("### Which emails split them"),
+                mo.md(discordant_ids(analysis)),
+                mo.md(
+                    "*Read these in the deep dive below before trusting the headline gap — "
+                    "an item whose gold route is not derivable from `ROUTING_POLICY` scores "
+                    "as a coin flip, and a handful of those is the whole difference.*"
+                ),
+            ],
+            gap=0.5,
+        )
+    )
+
+    mo.accordion({"## Analysis": analysis_view})
+    return
+
+
+@app.cell(hide_code=True)
 def _(Any, Counter, mean, mo):
     def _fmt(n: float) -> str:
         """Compact token counts so they fit an accordion header."""

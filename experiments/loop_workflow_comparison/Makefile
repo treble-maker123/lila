@@ -1,7 +1,7 @@
 IMAGE := email-org-harness
 PWD   := $(shell pwd)
 
-.PHONY: build run run-smoke run-individual score notebook shell generate-individual deanonymize
+.PHONY: build run run-smoke run-individual run-email score notebook shell generate-individual deanonymize
 
 build:
 	docker build -t $(IMAGE) .
@@ -53,6 +53,21 @@ run-individual: build
 			--runs 1 --temperature 0.0 \
 			--data datasets/emails_individual.json
 
+
+
+# Spot-check one E-mail (or a few) on both setups; writes an _only-<ids> results file
+# so it cannot overwrite a full run.
+# make run-email EMAIL=e031
+# make run-email EMAIL="e031 e043" ARGS="--runs 3 --temperature 0.6"
+run-email: build
+	docker run --rm \
+		-v $(PWD):/workspace \
+		-e OLLAMA_URL=http://host.docker.internal:11434 \
+		$(IMAGE) python -m src.main run \
+			--setup 1 --setup 2 \
+			--runs 1 --temperature 0.0 \
+			--data datasets/emails_individual.json \
+			$(foreach id,$(EMAIL),--email $(id)) $(ARGS)
 
 
 # Re-score a finished results file against its labels; no inference. The dataset is

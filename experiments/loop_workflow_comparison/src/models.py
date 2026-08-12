@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from src.memory import MemoryFootprint
+from src.tokens import PromptProbe
 
 # ``error`` is a *prediction-only* value: it means the setup never produced a
 # routing decision (see ErrorKind). Gold labels in the datasets must never use it,
@@ -122,6 +123,18 @@ class Email(BaseModel):
     tool_returns: dict[str, Any] = Field(default_factory=dict)
 
 
+class RunConfig(BaseModel):
+    """Provider settings shared by every setup, so a setup can never differ in one."""
+
+    model: str
+    ollama_url: str
+    temperature: float
+    think: bool
+    num_ctx: int
+    # Graph only; None when the startup probe failed (see src/tokens.py).
+    prompt_probe: PromptProbe | None = None
+
+
 class Metrics(BaseModel):
     """Cost metrics for one email. Accuracy is intentionally absent; scoring is done
     separately/later against the captured outputs.
@@ -136,8 +149,8 @@ class Metrics(BaseModel):
     ``tokens_in_unique`` counts each distinct prompt token once — what a perfect
     prefix cache would have to evaluate. For a loop the message list only ever grows,
     so every earlier prompt is a prefix of the final one and the unique total is just
-    the final call's prompt. For the graph the nodes are independent prompts that
-    share no usable prefix, so unique == cumulative.
+    the final call's prompt. The graph's two node prompts lead with the same email
+    block by construction, so that block is subtracted once (see src/tokens.py).
 
     The gap between the two is the loop's re-reading overhead, which local KV-cache
     reuse largely eliminates in practice — so ``cumulative`` overstates the real cost
@@ -148,6 +161,10 @@ class Metrics(BaseModel):
     tokens_in_unique: int
     tokens_out: int
     wall_clock_ms: int
+    # Read-tool calls on this email. Gathering is almost always +EV on this dataset,
+    # so accuracy alone hides how much context each setup bought to get it. Routing
+    # and get_new_email are excluded — one of each per email by construction.
+    read_tool_calls: int = 0
     steps: int | None = None
     # Per-call prompt token counts, in call order, so the two totals above can be
     # re-derived and the provider's own caching behaviour audited.
@@ -185,6 +202,12 @@ class Debug(BaseModel):
     nodes: list[NodeDebug] = Field(default_factory=list)
 
 
+class ToolInvocation(BaseModel):
+    name: str
+    args: dict[str, Any]
+    timestamp_ms: int
+
+
 class RunResult(BaseModel):
     setup: int
     email_id: str
@@ -194,13 +217,9 @@ class RunResult(BaseModel):
     # "error". Cost metrics are still recorded (the tokens really were spent).
     error: RunError | None = None
     warnings: list[RunWarning] = Field(default_factory=list)
+    # Every tool call in order, so read_tool_calls can be audited rather than trusted.
+    invocations: list[ToolInvocation] = Field(default_factory=list)
     debug: Debug = Field(default_factory=Debug)
-
-
-class ToolInvocation(BaseModel):
-    name: str
-    args: dict[str, Any]
-    timestamp_ms: int
 
 
 class InferenceResult(BaseModel):
@@ -226,6 +245,7 @@ class MetricsSummary(BaseModel):
     tokens_in_unique: int
     tokens_out: int
     wall_clock_ms: int
+    read_tool_calls: int = 0
     errors: int
     # Memory aggregates upward as a max, not a sum: emails run one after another, so
     # what a setup needs is its worst email, not the total across them.
@@ -244,6 +264,7 @@ class SetupSummary(BaseModel):
     tokens_in_unique: int
     tokens_out: int
     wall_clock_ms: int
+    read_tool_calls: int = 0
     # Email-runs that produced no routing decision (predicted.next_step == "error").
     errors: int
     # High-water mark across every email of every run of this setup.

@@ -177,6 +177,40 @@ Report both input-token numbers; the gap between them is the loop's re-reading
 overhead. Token and time metrics sum across emails; memory takes the **max** — a
 setup needs its worst email, not the total.
 
+#### Comparing cost between setups
+
+Same pairing argument as the labels: both setups see the same emails, so compare
+per-email differences rather than the two totals. The notebook runs a **Wilcoxon
+signed-rank** test on `dᵢ = log cost₁(eᵢ) − log cost₂(eᵢ)`, where each `cost(eᵢ)`
+is the mean over runs — signed-rank rather than a t-test because cost is
+right-skewed, per-email means rather than per-email-runs because the runs are not
+independent (n = 50, not 250). The effect is the Hodges–Lehmann median difference
+with a distribution-free 95% CI; on the log scale it reads as a ratio, which is
+the honest scale for a multiplicative quantity.
+
+Five metrics are tested, three of which bracket the same input tokens:
+
+| Metric | Reads as |
+| --- | --- |
+| `tokens_in_unique` | Perfect-cache floor — assumes repeats are served free |
+| `tokens_in_cumulative` | No-cache ceiling |
+| `tokens_in_cumulative` minus the `fetch` role | Control-flow-clean: drops the graph's free `get_new_email` |
+| `tokens_out` | The loop's narration |
+| `wall_clock_ms` | The only one of the five that costs anything locally |
+
+Neither input-token endpoint is a bill. A real API charges cache reads at a
+fraction of the input rate and cache writes at a premium, so an invoice sits
+between them; locally the KV cache already avoids the re-reading, so it costs
+wall clock and nothing else. Agreement across all three is the claim worth
+making — disagreement says the gap is caching policy, not control flow. The
+fetch-excluded row is only computable on `cumulative`, which is a per-call sum
+with parallel `call_roles`; `tokens_in_unique` is a single derived number (for
+the loop, the final call's prompt) and cannot be decomposed that way.
+
+`read_tool_calls` and `peak_context_tokens` are reported without a p-value —
+they correlate with the tested metrics, so pricing them too would buy
+multiplicity rather than information.
+
 #### Measuring input tokens
 
 Ollama's `prompt_eval_count` reports the **full** prompt on every call, whether or
@@ -261,6 +295,19 @@ confidence intervals a factor of √5 too tight. Compare setups pairwise per ema
 (how many emails did A get right that B got wrong, and vice versa) rather than
 comparing the two accuracy figures. `--runs` > 1 only buys information above
 temperature 0.
+
+The notebook runs that comparison as an exact two-sided McNemar test —
+`scipy.stats.binomtest(b, b + c, 0.5)` over the discordant emails — under two
+per-email notions of correct, which bracket the same runs:
+
+| Pairing | Email counts as correct when | Reads as |
+| --- | --- | --- |
+| `majority` | a strict majority of runs match the label (a tie does not) | the setup with n-way voting on top |
+| `pass^n` | *every* run matches the label | the setup unaided, asked to be right every time |
+
+A gap that opens only under `pass^n` is a consistency gap, not an accuracy one.
+Only k = n is tested: for k < n the per-email `pass^k` is `C(cᵢ,k)/C(n,k)`, an
+average over run subsets rather than the binary outcome McNemar pairs on.
 
 ### Actions
 

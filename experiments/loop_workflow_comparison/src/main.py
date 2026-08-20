@@ -346,7 +346,9 @@ def run(
     if email_ids:
         unknown = sorted(set(email_ids) - {e.id for e in emails})
         if unknown:
-            raise click.BadParameter(f"not in {data_path}: {', '.join(unknown)}", param_hint="--email")
+            raise click.BadParameter(
+                f"not in {data_path}: {', '.join(unknown)}", param_hint="--email"
+            )
         emails = [e for e in emails if e.id in set(email_ids)]
     console.print(f"[bold]Loaded {len(emails)} emails from {data_path}[/bold]")
     skipped_email_ids = [email.id for email in emails if not email.body.strip()]

@@ -8,14 +8,28 @@ app = marimo.App(width="full")
 def _():
     import json
     from collections import Counter
-    from math import comb
+    from math import exp, log, sqrt
     from pathlib import Path
-    from statistics import mean
+    from statistics import mean, median
     from typing import Any
 
     import marimo as mo
+    from scipy.stats import binomtest, wilcoxon
 
-    return Any, Counter, Path, comb, json, mean, mo
+    return (
+        Any,
+        Counter,
+        Path,
+        binomtest,
+        exp,
+        json,
+        log,
+        mean,
+        median,
+        mo,
+        sqrt,
+        wilcoxon,
+    )
 
 
 @app.cell
@@ -143,7 +157,10 @@ def _(Any, mo, names, payload):
         """Input tokens grouped by what the call was for. The graph's roles are fixed by
         its nodes; the loop's are inferred from the tools it chose."""
         head = " | ".join(names.get(str(s["setup"]), s["label"]) for s in summaries)
-        lines = [f"| Call role | {head} |", "| --- | " + " | ".join("---" for _ in summaries) + " |"]
+        lines = [
+            f"| Call role | {head} |",
+            "| --- | " + " | ".join("---" for _ in summaries) + " |",
+        ]
         for role in ROLE_ORDER:
             if not any(s.get("calls_by_role", {}).get(role) for s in summaries):
                 continue
@@ -164,9 +181,11 @@ def _(Any, mo, names, payload):
         [
             mo.md(cost_table(summaries)) if summaries else mo.md("*No `summary` block.*"),
             mo.md("**Input tokens by call role**"),
-            mo.md(role_table(summaries))
-            if any(s.get("calls_by_role") for s in summaries)
-            else mo.md("*This results file predates call-role bucketing; re-run to populate.*"),
+            (
+                mo.md(role_table(summaries))
+                if any(s.get("calls_by_role") for s in summaries)
+                else mo.md("*This results file predates call-role bucketing; re-run to populate.*")
+            ),
             mo.md(
                 "*`fetch` is free for the graph — it dispatches `get_new_email` in code — so "
                 "the headline input-token gap shrinks a lot once that row is set aside. Note "
@@ -382,27 +401,33 @@ def _(labels_counts, labels_errors, labels_headline, mo):
 
 
 @app.cell
-def _(Any, comb, labels):
-    def correct_by_email(m: dict[str, Any]) -> dict[str, bool]:
-        """One bool per email, so the two setups pair 1-to-1. With more than one run an
-        email counts as correct on a strict majority of them; a tie is not correct."""
+def _(Any, binomtest, labels):
+    def majority_by_email(m: dict[str, Any]) -> dict[str, bool]:
+        """One bool per email: correct on a strict majority of runs; a tie is not
+        correct. The voting bound — pass^1 with n-way voting on top."""
         return {eid: 2 * n > m["runs"] for eid, n in m["successes"].items()}
 
-    def mcnemar_exact(b: int, c: int) -> float:
-        """Two-sided exact binomial on the discordant pairs. The concordant cells carry
-        no information about which setup is better, so they are not in the test."""
-        n = b + c
-        if n == 0:
-            return 1.0
-        tail = sum(comb(n, k) for k in range(max(b, c), n + 1))
-        return min(1.0, 2 * tail / 2**n)
+    def unanimous_by_email(m: dict[str, Any]) -> dict[str, bool]:
+        """One bool per email: correct on *every* run. This is pass^k at k = n, the
+        only k whose per-email value is binary — for k < n it is C(cᵢ,k)/C(n,k), an
+        average over all k-subsets of the runs, which McNemar cannot take."""
+        return {eid: n == m["runs"] for eid, n in m["successes"].items()}
 
-    def paired() -> dict[str, Any] | None:
-        """The 2x2 agreement matrix, or None unless exactly two setups were scored."""
+    def mcnemar_exact(b: int, c: int) -> float:
+        """Two-sided exact McNemar: a binomial test on the discordant pairs against
+        p = 0.5. The concordant cells carry no information about which setup is
+        better, so they are not in the test."""
+        if b + c == 0:
+            return 1.0
+        return float(binomtest(b, b + c, 0.5, alternative="two-sided").pvalue)
+
+    def paired(per_email: Any, name: str) -> dict[str, Any] | None:
+        """The 2x2 agreement matrix under one per-email notion of "correct", or None
+        unless exactly two setups were scored."""
         if len(labels) != 2:
             return None
         first, second = labels
-        a_ok, b_ok = correct_by_email(first), correct_by_email(second)
+        a_ok, b_ok = per_email(first), per_email(second)
         shared = sorted(set(a_ok) & set(b_ok))
         cell = lambda x, y: [i for i in shared if a_ok[i] is x and b_ok[i] is y]  # noqa: E731
         both, only_a, only_b, neither = (
@@ -412,8 +437,10 @@ def _(Any, comb, labels):
             cell(False, False),
         )
         return {
+            "name": name,
             "a": first["label"],
             "b": second["label"],
+            "runs": first["runs"],
             "emails": len(shared),
             "both": both,
             "only_a": only_a,
@@ -422,11 +449,11 @@ def _(Any, comb, labels):
             "p": mcnemar_exact(len(only_a), len(only_b)),
         }
 
-    return (paired,)
+    return majority_by_email, paired, unanimous_by_email
 
 
 @app.cell
-def _(mo, paired):
+def _(cost_stats_view, majority_by_email, mo, paired, unanimous_by_email):
     def matrix_table(m: dict) -> str:
         return "\n".join(
             [
@@ -450,10 +477,7 @@ def _(mo, paired):
             if p >= 0.05
             else f"**p = {p:.3f}** — {better} is ahead by more than chance on this dataset."
         )
-        return (
-            f"McNemar exact, two-sided, on the {b + c} discordant emails "
-            f"({b} + {c}). {call}"
-        )
+        return f"McNemar exact, two-sided, on the {b + c} discordant emails " f"({b} + {c}). {call}"
 
     def discordant_ids(m: dict) -> str:
         rows = [
@@ -472,18 +496,37 @@ def _(mo, paired):
             ]
         )
 
-    analysis = paired()
+    def column(m: dict, caption: str) -> object:
+        return mo.vstack(
+            [
+                mo.md(f"**{m['name']}** — {caption}"),
+                mo.md(matrix_table(m)),
+                mo.md(verdict(m)),
+                mo.accordion({"Which emails split them": mo.md(discordant_ids(m))}),
+            ],
+            gap=0.5,
+        )
+
+    majority = paired(majority_by_email, "majority")
+    unanimous = paired(unanimous_by_email, "pass^n")
     analysis_view = (
         mo.callout(
             mo.md("Pairwise analysis needs exactly two scored setups."),
             kind="warn",
         )
-        if analysis is None
+        if majority is None or unanimous is None
         else mo.vstack(
             [
                 mo.md("### Do the setups actually differ?"),
-                mo.md(matrix_table(analysis)),
-                mo.md(verdict(analysis)),
+                mo.hstack(
+                    [
+                        column(majority, "correct on a strict majority of runs"),
+                        column(unanimous, f"correct on all {unanimous['runs']} runs"),
+                    ],
+                    widths="equal",
+                    gap=2,
+                    align="start",
+                ),
                 mo.md(
                     "*Both setups see the same emails, so the comparison is paired and the "
                     "two accuracy figures are not independent samples. Comparing them as if "
@@ -491,20 +534,189 @@ def _(mo, paired):
                     "on carry any, and at 50 emails there are rarely many. The concordant "
                     "cells are excluded for that reason, not by oversight.*"
                 ),
-                mo.md("### Which emails split them"),
-                mo.md(discordant_ids(analysis)),
                 mo.md(
-                    "*Read these in the deep dive below before trusting the headline gap — "
-                    "an item whose gold route is not derivable from `ROUTING_POLICY` scores "
-                    "as a coin flip, and a handful of those is the whole difference.*"
+                    "*The two columns bracket the same runs: `majority` is each setup with "
+                    "n-way voting on top, `pass^n` is each setup unaided and asked to be "
+                    "right every time. A gap that only opens under `pass^n` is a consistency "
+                    "gap, not an accuracy one. Only k = n is tested — for k < n the per-email "
+                    "`pass^k` is `C(cᵢ,k)/C(n,k)`, an average over run subsets rather than the "
+                    "binary outcome McNemar pairs on.*"
+                ),
+                mo.md(
+                    "*Read the discordant emails in the deep dive below before trusting the "
+                    "headline gap — an item whose gold route is not derivable from "
+                    "`ROUTING_POLICY` scores as a coin flip, and a handful of those is the "
+                    "whole difference.*"
                 ),
             ],
             gap=0.5,
         )
     )
 
-    mo.accordion({"## Analysis": analysis_view})
+    mo.accordion({"## Analysis": mo.vstack([analysis_view, cost_stats_view], gap=1.5)})
     return
+
+
+@app.cell
+def _(Any, mean, payload):
+    # Cost metrics compared per email. `tested` rows get a p-value; the rest are
+    # descriptive — testing every correlated metric would invite multiplicity for
+    # no extra information.
+    COST_METRICS: list[tuple[str, str, bool]] = [
+        ("tokens_in_unique", "each prompt token once — perfect-cache floor", True),
+        ("tokens_in_cumulative", "every call's prompt summed — no-cache ceiling", True),
+        ("tokens_in_no_fetch", "cumulative minus the `fetch` role", True),
+        ("tokens_out", "generated tokens", True),
+        ("wall_clock_ms", "time in the scored region", True),
+        ("read_tool_calls", "context the setup bought", False),
+        ("peak_context_tokens", "largest single prompt + generation", False),
+    ]
+
+    def _metric(metrics: dict[str, Any], key: str) -> float | None:
+        """One email-run's value. `tokens_in_no_fetch` is derived: unlike the unique
+        count, cumulative is a per-call sum with parallel roles, so the graph's free
+        `get_new_email` can be subtracted out of it."""
+        if key != "tokens_in_no_fetch":
+            return metrics.get(key)
+        roles = metrics.get("call_roles") or []
+        prompts = metrics.get("prompt_tokens") or []
+        if not roles or not prompts:
+            return None
+        return sum(p for role, p in zip(roles, prompts, strict=False) if role != "fetch")
+
+    def per_email_cost(setup: int, key: str) -> dict[str, float]:
+        """Per-email mean across runs. Averaging is what keeps the pairing honest: the
+        runs are not independent samples, so 50 emails is the sample size, not 250
+        email-runs."""
+        values: dict[str, list[float]] = {}
+        for run in payload.get("results", {}).get(str(setup), []):
+            for result in run:
+                value = _metric(result["metrics"], key)
+                if value is not None:
+                    values.setdefault(result["email_id"], []).append(value)
+        return {email_id: mean(v) for email_id, v in values.items() if v}
+
+    return COST_METRICS, per_email_cost
+
+
+@app.cell
+def _(Any, exp, labels, log, median, per_email_cost, sqrt, wilcoxon):
+    def hodges_lehmann(diffs: list[float]) -> tuple[float, float, float]:
+        """Median paired difference with a distribution-free 95% CI — the signed-rank
+        test's own point estimate, taken over the Walsh averages it ranks."""
+        walsh = sorted(
+            (diffs[i] + diffs[j]) / 2 for i in range(len(diffs)) for j in range(i, len(diffs))
+        )
+        n, total = len(diffs), len(walsh)
+        k = max(int(total / 2 - 1.96 * sqrt(n * (n + 1) * (2 * n + 1) / 24)), 0)
+        return median(walsh), walsh[k], walsh[total - 1 - k]
+
+    def compare_cost(key: str) -> dict[str, Any] | None:
+        """Wilcoxon signed-rank on the per-email paired differences, or None when the
+        metric is absent. Cost is multiplicative, so the test runs on log differences
+        where every value is positive — the null becomes "same cost", not "same
+        absolute difference", and the estimate reads as a ratio."""
+        if len(labels) != 2:
+            return None
+        first, second = labels
+        a, b = per_email_cost(first["setup"], key), per_email_cost(second["setup"], key)
+        shared = sorted(set(a) & set(b))
+        if not shared:
+            return None
+        xa, xb = [a[i] for i in shared], [b[i] for i in shared]
+        logged = all(v > 0 for v in xa + xb)
+        diffs = (
+            [log(x) - log(y) for x, y in zip(xa, xb)] if logged else [x - y for x, y in zip(xa, xb)]
+        )
+        point, low, high = hodges_lehmann(diffs)
+        # An all-zero difference vector has nothing to rank; scipy raises rather than
+        # returning 1.0, which is what "the setups are identical here" should mean.
+        p = (
+            1.0
+            if all(d == 0 for d in diffs)
+            else float(wilcoxon(diffs, zero_method="pratt", alternative="two-sided").pvalue)
+        )
+        return {
+            "emails": len(shared),
+            "mean_a": sum(xa) / len(xa),
+            "mean_b": sum(xb) / len(xb),
+            "logged": logged,
+            "effect": (exp(point), exp(low), exp(high)) if logged else (point, low, high),
+            "p": p,
+        }
+
+    return (compare_cost,)
+
+
+@app.cell
+def _(COST_METRICS: list[tuple[str, str, bool]], compare_cost, labels, mo):
+    def _effect(row: dict) -> str:
+        point, low, high = row["effect"]
+        if row["logged"]:
+            return f"×{point:.2f} ({low:.2f}–{high:.2f})"
+        return f"{point:+,.0f} ({low:+,.0f}–{high:+,.0f})"
+
+    def cost_stats_table() -> str:
+        first, second = labels
+        lines = [
+            f"| Metric | {first['label']} | {second['label']} | A/B, median (95% CI) | p |",
+            "| --- | ---: | ---: | ---: | ---: |",
+        ]
+        for key, caption, tested in COST_METRICS:
+            row = compare_cost(key)
+            if row is None:
+                lines.append(f"| `{key}` | — | — | — | — |")
+                continue
+            effect = _effect(row)
+            p = f"{row['p']:.4f}" if tested else "—"
+            lines.append(
+                f"| `{key}`<br/><sub>{caption}</sub> | {row['mean_a']:,.0f} | "
+                f"{row['mean_b']:,.0f} | {effect} | {p} |"
+            )
+        return "\n".join(lines)
+
+    cost_stats_view = (
+        mo.callout(mo.md("Cost comparison needs exactly two scored setups."), kind="warn")
+        if len(labels) != 2
+        else mo.vstack(
+            [
+                mo.md("### Does one setup cost more?"),
+                mo.md(cost_stats_table()),
+                mo.md(
+                    "*Per-email means over the runs, paired and compared with Wilcoxon "
+                    "signed-rank. Paired because both setups see the same emails, which "
+                    "removes the between-email variance an XL email carries in both columns; "
+                    "signed-rank rather than a t-test because cost is right-skewed — a loop "
+                    "that wanders for six turns is a long tail. The estimate is the "
+                    "Hodges–Lehmann median difference, on the log scale where every value is "
+                    "positive, so it reads as a ratio: ×1.00 is parity, below 1 means the "
+                    "first setup spends less.*"
+                ),
+                mo.md(
+                    "*The first three rows bracket the same input tokens. `tokens_in_unique` "
+                    "assumes a perfect cache serves repeats for free; `tokens_in_cumulative` "
+                    "assumes no cache at all. A real API charges cache reads at a fraction of "
+                    "the input rate and cache writes at a premium, so a bill sits between "
+                    "them — and locally, where the KV cache already avoids the re-reading, "
+                    "neither is money and `wall_clock_ms` is the metric that costs anything. "
+                    "`tokens_in_no_fetch` is the control-flow-clean one: setup 2 dispatches "
+                    "`get_new_email` in code, so excluding that role stops the comparison "
+                    "crediting the graph for an implementation choice. Agreement across all "
+                    "three is the claim worth making; disagreement says the gap is caching "
+                    "policy, not control flow.*"
+                ),
+                mo.md(
+                    "*The p-values answer 'is there a difference at all', which a large "
+                    "consistent gap makes a foregone conclusion — read the ratio and its "
+                    "interval first. Untested rows are reported for context only; they "
+                    "correlate with the tested ones, and pricing every correlated metric "
+                    "would buy multiplicity rather than information.*"
+                ),
+            ],
+            gap=0.5,
+        )
+    )
+    return (cost_stats_view,)
 
 
 @app.cell(hide_code=True)
@@ -643,7 +855,11 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
                     + (f"  \n**Note** {email['note']}" if email["note"] else "")
                     # Below Note: the note is the answer key, the scenario is the setting.
                     # Reading the scenario after it keeps the answer from framing the setup.
-                    + (f"  \n**Scenario** {email.get('scenario') or ''}" if email.get("scenario") else "")
+                    + (
+                        f"  \n**Scenario** {email.get('scenario') or ''}"
+                        if email.get("scenario")
+                        else ""
+                    )
                 ),
                 mo.accordion(
                     {

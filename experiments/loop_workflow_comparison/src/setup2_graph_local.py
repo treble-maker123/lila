@@ -60,7 +60,11 @@ class _ProviderError(Exception):
 
 def _calls_json(resp: _NodeResponse) -> str:
     """The node's tool calls as text, for the output split (see src/tokens.py)."""
-    return json.dumps([{"name": c.name, "arguments": c.args} for c in resp.calls]) if resp.calls else ""
+    return (
+        json.dumps([{"name": c.name, "arguments": c.args} for c in resp.calls])
+        if resp.calls
+        else ""
+    )
 
 
 def _chat_tools(

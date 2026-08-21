@@ -43,7 +43,10 @@ make -C src/core test                 # scope to one package
 make -C src/core docker-test          # both, in a container
 make -C src/core docker-test-unit     # unit tests only, in a container
 make -C src/core docker-test-integ    # integration tests only, in a container
+make ci                               # format-check, typecheck, and test
 ```
+
+`make ci` is the full gate: it runs `format-check` (black/ruff report without rewriting), `typecheck`, then `test`.
 
 Retarget the integration tests with `LILA_OLLAMA_HOST` and `LILA_OLLAMA_MODEL`:
 

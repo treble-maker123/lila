@@ -1,4 +1,4 @@
-.PHONY: setup update upgrade format typecheck dev test test-unit test-integ
+.PHONY: setup update upgrade format format-check typecheck dev ci test test-unit test-integ
 
 # Every package under src/ that carries its own Makefile.
 PACKAGES := $(patsubst %/,%,$(dir $(wildcard src/*/Makefile)))
@@ -19,11 +19,18 @@ format:
 	uv run black .
 	uv run ruff check --select I --fix .
 
+# Same checks as `format`, but reports instead of rewriting. Used by `ci`.
+format-check:
+	uv run black --check .
+	uv run ruff check --select I .
+
 typecheck:
 	uv run --no-sync basedpyright
 
 dev: update
 	uv run --no-sync lila
+
+ci: format-check typecheck test
 
 # Delegate to each package's Makefile so the targets mean the same thing everywhere.
 # Containerised runs stay package-local: see `make -C src/core docker-test`.

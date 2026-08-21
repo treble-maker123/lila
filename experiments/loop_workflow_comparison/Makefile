@@ -1,7 +1,10 @@
 IMAGE := email-org-harness
 PWD   := $(shell pwd)
 
-.PHONY: build run run-smoke run-individual run-email score notebook shell generate-individual deanonymize
+.PHONY: build run run-smoke run-individual run-email score notebook export-html shell generate-individual deanonymize
+
+# Temperatures with a full results file; used by export-html.
+TEMPS := temp0 temp0.3 temp0.6 temp1
 
 build:
 	docker build -t $(IMAGE) .
@@ -86,6 +89,19 @@ score: build
 # make notebook
 notebook:
 	uv run marimo edit --watch .
+
+
+# Render the results notebook to a standalone HTML file per temperature, next to
+# the JSON it was built from. Runs on the host for the same reason as `notebook`.
+# make export-html
+export-html:
+	@for t in $(TEMPS); do \
+		json=$$(ls results/emails_individual_setup12_$${t}_*.json) && \
+		uv run marimo export html results/visualize_emails_individual.py \
+			--no-include-code \
+			-o results/visualize_emails_individual_$${t}.html \
+			-- --results "$$(basename $$json)" || exit 1; \
+	done
 
 
 

@@ -43,13 +43,23 @@ def _(mo):
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
+    # --results <name> pins the file, so a static export is not stuck on the newest.
+    selected = mo.cli_args().get("results") or (files[0].name if files else None)
     picker = mo.ui.dropdown(
         options={p.name: str(p) for p in files},
-        value=files[0].name if files else None,
+        value=selected,
         label="Results file",
     )
+    # A static export has no kernel to run a lazy fold's callable when it is opened,
+    # so on export the folds are built up front instead.
+    EXPORTING = "results" in mo.cli_args()
+
+    def fold(build):
+        """Deferred fold content: lazy in the editor, eager in an export."""
+        return build() if EXPORTING else mo.lazy(build)
+
     picker
-    return DATA_PATH, picker
+    return DATA_PATH, EXPORTING, fold, picker
 
 
 @app.cell
@@ -117,11 +127,17 @@ def _(Any, mo, names, payload):
     }
 
     def _value(summary: dict[str, Any], metric: str) -> int | None:
+        # `.get`, not `[]`: results files that predate a metric just show "—".
         if metric == "input-token gap":
-            return summary["tokens_in_cumulative"] - summary["tokens_in_unique"]
+            cumulative, unique = summary.get("tokens_in_cumulative"), summary.get(
+                "tokens_in_unique"
+            )
+            if cumulative is None or unique is None:
+                return None
+            return cumulative - unique
         if metric == "memory":
-            return summary["memory"]["total_bytes"] if summary["memory"] else None
-        return summary[metric]
+            return summary["memory"]["total_bytes"] if summary.get("memory") else None
+        return summary.get(metric)
 
     def _display(summary: dict[str, Any], metric: str) -> str:
         value = _value(summary, metric)
@@ -720,7 +736,7 @@ def _(COST_METRICS: list[tuple[str, str, bool]], compare_cost, labels, mo):
 
 
 @app.cell(hide_code=True)
-def _(Any, Counter, mean, mo):
+def _(Any, Counter, fold, mean, mo):
     def _fmt(n: float) -> str:
         """Compact token counts so they fit an accordion header."""
         return f"{n / 1000:.1f}k" if n >= 1000 else f"{n:.0f}"
@@ -807,13 +823,13 @@ def _(Any, Counter, mean, mo):
         steps = {f"loop {i + 1}": step for i, step in enumerate(debug["loops"])} | {
             f"node {i + 1} · {step['node']}": step for i, step in enumerate(debug["nodes"])
         }
-        return {name: mo.lazy(lambda s=step: mo.json(s)) for name, step in steps.items()}
+        return {name: fold(lambda s=step: mo.json(s)) for name, step in steps.items()}
 
     return body_md, debug_steps, header, metrics_md, outcome_md
 
 
 @app.cell
-def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
+def _(Any, body_md, debug_steps, fold, metrics_md, mo, outcome_md):
     def run_detail(result: dict[str, Any]) -> Any:
         """One run of one email: its cost, its draft, and its own debug trace."""
         blocks: list[Any] = [mo.md(metrics_md(result["metrics"]))]
@@ -831,7 +847,7 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
                 mo.callout(mo.md(f"**{warning['kind']}** — {warning['detail']}"), kind="warn")
             )
         blocks.append(
-            mo.accordion({"Debug trace": mo.lazy(lambda: mo.accordion(debug_steps(result)))})
+            mo.accordion({"Debug trace": fold(lambda: mo.accordion(debug_steps(result)))})
         )
         return mo.vstack(blocks, gap=0.5)
 
@@ -840,7 +856,7 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
         body, fixtures and label — is shown once at the top; what belongs to a run —
         metrics, draft, debug trace — is one fold per run below it."""
         runs = {
-            f"run {i + 1} · {r['predicted']['next_step']}": mo.lazy(
+            f"run {i + 1} · {r['predicted']['next_step']}": fold(
                 lambda result=r: run_detail(result)
             )
             for i, r in enumerate(results)
@@ -866,7 +882,7 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
                         "Email body": mo.md(body_md(email["body"])),
                         # The fixtures the mock server hands back for this email, so a
                         # surprising route can be checked against what the tools said.
-                        "Tool returns": mo.lazy(lambda: mo.json(email["tool_returns"])),
+                        "Tool returns": fold(lambda: mo.json(email["tool_returns"])),
                     }
                 ),
                 mo.md(outcome_md(results, email)),
@@ -879,7 +895,7 @@ def _(Any, body_md, debug_steps, metrics_md, mo, outcome_md):
 
 
 @app.cell
-def _(Any, detail, gold, header, mo, names, payload):
+def _(Any, EXPORTING, detail, fold, gold, header, mo, names, payload):
     def by_email(setup: str) -> dict[str, list[dict[str, Any]]]:
         """Every run's result for each email, keyed by email id in dataset order."""
         runs = payload["results"][setup]
@@ -900,7 +916,7 @@ def _(Any, detail, gold, header, mo, names, payload):
             if r["predicted"]["next_step"] == gold[email_id]["label"]["next_step"]
         )
         rows = {
-            header(results, gold[email_id]): mo.lazy(
+            header(results, gold[email_id]): fold(
                 lambda rs=results, eid=email_id: detail(rs, gold[eid])
             )
             for email_id, results in grouped.items()
@@ -927,8 +943,19 @@ def _(Any, detail, gold, header, mo, names, payload):
             align="start",
         )
 
-    # lazy: the columns and their per-email rows are only built when the fold is opened.
-    mo.accordion({"## Deep dive": mo.lazy(deep_dive)})
+    # Lazy in the editor: the columns and their per-email rows are only built when the
+    # fold is opened. An export has no kernel to build them later and building them up
+    # front runs to tens of MB — every email, run and trace — so it gets a pointer back
+    # to the notebook instead.
+    mo.accordion(
+        {
+            "## Deep dive": (
+                mo.md("*Editor-only. Run `make notebook` to open it.*")
+                if EXPORTING
+                else fold(deep_dive)
+            )
+        }
+    )
     return
 
 

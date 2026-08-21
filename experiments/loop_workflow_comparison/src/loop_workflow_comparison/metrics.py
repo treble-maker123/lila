@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from src.memory import MemoryFootprint
-from src.models import (
+from loop_workflow_comparison.memory import MemoryFootprint
+from loop_workflow_comparison.models import (
     ROUTING_CLASSES,
     ClassCounts,
     Distribution,

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.models import Email
+from loop_workflow_comparison.models import Email
 
 # Fixed "now" injected into every prompt so time is held constant across runs.
 CURRENT_TIME = "Wed, 29 Jul 2026 09:40:10 -0400"

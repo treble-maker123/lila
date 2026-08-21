@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from src.models import Email, ToolInvocation
-from src.prompts import render_email
+from loop_workflow_comparison.models import Email, ToolInvocation
+from loop_workflow_comparison.prompts import render_email
 
 TOOLS: list[dict[str, Any]] = [
     {

@@ -1,0 +1,19 @@
+{
+  // Extensions this workspace's settings.json depends on. VS Code prompts to
+  // install these when the folder is opened. To install them by hand, search
+  // `@recommended` in the Extensions view (or run "Extensions: Show Recommended
+  // Extensions") and use the install-all icon on the Workspace Recommendations
+  // section.
+  "recommendations": [
+    // Python language support; Pylance resolves python.analysis.extraPaths.
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    // Formatter wired up in "[python]".editor.defaultFormatter, matching `make format`.
+    "ms-python.black-formatter",
+    // Linter + import sorting, matching the root pyproject's [tool.ruff].
+    "charliermarsh.ruff",
+    // The experiment harness runs through make targets and a Docker image.
+    "ms-vscode.makefile-tools",
+    "ms-azuretools.vscode-containers"
+  ]
+}

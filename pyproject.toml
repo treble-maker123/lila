@@ -1,16 +1,15 @@
 [project]
 name = "lila"
-version = "0.1.0"
+version = "0.0.1"
 requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["experiments/loop_workflow_comparison"]
+members = ["experiments/loop_workflow_comparison", "src/core"]
 
 [dependency-groups]
 dev = [
     "black>=24.0",
-    "marimo>=0.9",
     "ruff>=0.5",
 ]
 
@@ -26,4 +25,4 @@ target-version = "py313"
 select = ["E", "F", "I", "UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["src"]
+known-first-party = ["lila", "loop_workflow_comparison"]

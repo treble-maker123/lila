@@ -19,8 +19,14 @@ from typing import Any
 import ollama
 from pydantic import BaseModel
 
-from src.mcp_server import READ_TOOLS, ROUTE_TOOLS, MockMCPServer, UnknownToolError, tools_for
-from src.models import (
+from loop_workflow_comparison.mcp_server import (
+    READ_TOOLS,
+    ROUTE_TOOLS,
+    MockMCPServer,
+    UnknownToolError,
+    tools_for,
+)
+from loop_workflow_comparison.models import (
     DEFAULT_DRAFT,
     Action,
     Debug,
@@ -32,9 +38,14 @@ from src.models import (
     RunError,
     RunWarning,
 )
-from src.prompts import GATHER_POLICY, ROUTING_INSTRUCTION, ROUTING_POLICY, render_tool_result
-from src.setup1_react_local import parse_actions
-from src.tokens import split_output
+from loop_workflow_comparison.prompts import (
+    GATHER_POLICY,
+    ROUTING_INSTRUCTION,
+    ROUTING_POLICY,
+    render_tool_result,
+)
+from loop_workflow_comparison.setup1_react_local import parse_actions
+from loop_workflow_comparison.tokens import split_output
 
 # The gather node's prompt is the email followed by this. Named so src/tokens.py can
 # price the wrapper and subtract the shared email block from the unique-token total.

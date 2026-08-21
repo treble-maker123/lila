@@ -1,4 +1,6 @@
-# Conventions
+# Development Guide
+
+## Conventions
 
 Please follow the conventions in this document when developing in this repo.
 

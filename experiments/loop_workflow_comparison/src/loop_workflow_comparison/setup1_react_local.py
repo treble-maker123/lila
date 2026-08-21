@@ -6,8 +6,8 @@ import json
 
 import ollama
 
-from src.mcp_server import TOOLS, MockMCPServer, UnknownToolError, call_role
-from src.models import (
+from loop_workflow_comparison.mcp_server import TOOLS, MockMCPServer, UnknownToolError, call_role
+from loop_workflow_comparison.models import (
     DEFAULT_DRAFT,
     Action,
     Debug,
@@ -19,8 +19,12 @@ from src.models import (
     RunError,
     RunWarning,
 )
-from src.prompts import EMAIL_TRIAGE_SKILL, GENERIC_AGENT_SYSTEM, render_tool_result
-from src.tokens import split_output
+from loop_workflow_comparison.prompts import (
+    EMAIL_TRIAGE_SKILL,
+    GENERIC_AGENT_SYSTEM,
+    render_tool_result,
+)
+from loop_workflow_comparison.tokens import split_output
 
 MAX_STEPS = 12
 

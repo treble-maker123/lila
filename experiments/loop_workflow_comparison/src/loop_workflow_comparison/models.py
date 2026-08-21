@@ -6,8 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from src.memory import MemoryFootprint
-from src.tokens import PromptProbe
+from loop_workflow_comparison.memory import MemoryFootprint
+from loop_workflow_comparison.tokens import PromptProbe
 
 # ``error`` is a *prediction-only* value: it means the setup never produced a
 # routing decision (see ErrorKind). Gold labels in the datasets must never use it,

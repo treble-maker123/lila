@@ -1,6 +1,9 @@
 .venv/
-.ruff_cache
+.ruff_cache/
 *.pyc
 __pycache__/
 tags
 __marimo__/
+
+# local data files
+data/

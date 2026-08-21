@@ -30,10 +30,11 @@ DATASETS_DIR = Path(__file__).resolve().parent.parent
 OUTPUT_PATH = DATASETS_DIR / "emails_individual.json"
 PLAN_PATH = DATASETS_DIR / "emails_individual_plan.md"
 
-# The experiment root, so ``src`` imports work when this is run as a script path.
-sys.path.insert(0, str(DATASETS_DIR.parent))
+# The package root, so ``loop_workflow_comparison`` imports work when this is run
+# as a script path rather than against the installed package.
+sys.path.insert(0, str(DATASETS_DIR.parent / "src"))
 
-from src.prompts import CURRENT_TIME  # noqa: E402
+from loop_workflow_comparison.prompts import CURRENT_TIME  # noqa: E402
 
 INBOX_OWNER = "Shannon C. <shannon@info4days.edu>"
 

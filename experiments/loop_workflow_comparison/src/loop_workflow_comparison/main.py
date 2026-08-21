@@ -8,11 +8,16 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from src import driver
-from src.dataset import load_emails
-from src.memory import CalibrationError, KVProfile, MemoryFootprint, OllamaMemoryProfiler
-from src.metrics import score_labels, summarize
-from src.models import (
+from loop_workflow_comparison import driver
+from loop_workflow_comparison.dataset import load_emails
+from loop_workflow_comparison.memory import (
+    CalibrationError,
+    KVProfile,
+    MemoryFootprint,
+    OllamaMemoryProfiler,
+)
+from loop_workflow_comparison.metrics import score_labels, summarize
+from loop_workflow_comparison.models import (
     ClassCounts,
     Distribution,
     Email,
@@ -21,8 +26,8 @@ from src.models import (
     RunResult,
     SetupSummary,
 )
-from src.setup2_graph_local import GATHER_SUFFIX
-from src.tokens import ProbeError, PromptProbe, probe_wrapper
+from loop_workflow_comparison.setup2_graph_local import GATHER_SUFFIX
+from loop_workflow_comparison.tokens import ProbeError, PromptProbe, probe_wrapper
 
 console = Console()
 

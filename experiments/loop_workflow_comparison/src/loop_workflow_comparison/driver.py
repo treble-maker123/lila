@@ -20,10 +20,10 @@ from collections.abc import Callable, Sequence
 
 import ollama
 
-from src import setup1_react_local, setup2_graph_local
-from src.mcp_server import READ_TOOLS
-from src.memory import KVProfile
-from src.models import Email, InferenceResult, Metrics, RunConfig, RunResult
+from loop_workflow_comparison import setup1_react_local, setup2_graph_local
+from loop_workflow_comparison.mcp_server import READ_TOOLS
+from loop_workflow_comparison.memory import KVProfile
+from loop_workflow_comparison.models import Email, InferenceResult, Metrics, RunConfig, RunResult
 
 RunEmail = Callable[[Email, RunConfig], InferenceResult]
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.models import Email
+from loop_workflow_comparison.models import Email
 
 
 def load_emails(path: str | Path = "datasets/emails_smoke.json") -> list[Email]:

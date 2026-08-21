@@ -29,7 +29,7 @@ run: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		$(IMAGE) python -m src.main run $(ARGS)
+		$(IMAGE) python -m loop_workflow_comparison.main run $(ARGS)
 
 # Quick local smoke test: setups 1 & 2 on the smoke dataset, 2 runs, temp 0.0.
 # make run-smoke
@@ -37,7 +37,7 @@ run-smoke: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		$(IMAGE) python -m src.main run \
+		$(IMAGE) python -m loop_workflow_comparison.main run \
 			--setup 1 --setup 2 \
 			--runs 2 --temperature 0.0 \
 			--data datasets/emails_smoke.json
@@ -48,7 +48,7 @@ run-individual: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		$(IMAGE) python -m src.main run \
+		$(IMAGE) python -m loop_workflow_comparison.main run \
 			--setup 1 --setup 2 \
 			--runs 5 --temperature 0.6 \
 			--data datasets/emails_individual.json
@@ -63,7 +63,7 @@ run-email: build
 	docker run --rm \
 		-v $(PWD):/workspace \
 		-e OLLAMA_URL=http://host.docker.internal:11434 \
-		$(IMAGE) python -m src.main run \
+		$(IMAGE) python -m loop_workflow_comparison.main run \
 			--setup 1 --setup 2 \
 			--runs 1 --temperature 0.0 \
 			--data datasets/emails_individual.json \
@@ -76,7 +76,7 @@ run-email: build
 score: build
 	docker run --rm \
 		-v $(PWD):/workspace \
-		$(IMAGE) python -m src.main score --results $(RESULTS) $(ARGS)
+		$(IMAGE) python -m loop_workflow_comparison.main score --results $(RESULTS) $(ARGS)
 
 # Start the marimo server at the experiment root, so both the results notebook
 # (results/visualize_emails_individual.py) and the dataset notebook

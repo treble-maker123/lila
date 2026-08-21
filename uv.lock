@@ -4,8 +4,9 @@ requires-python = ">=3.13"
 
 [manifest]
 members = [
-    "email-organization",
     "lila",
+    "lila-core",
+    "loop-workflow-comparison-experiment",
 ]
 
 [[package]]
@@ -182,31 +183,6 @@ wheels = [
 ]
 
 [[package]]
-name = "email-organization"
-version = "0.1.0"
-source = { editable = "experiments/loop_workflow_comparison" }
-dependencies = [
-    { name = "beautifulsoup4" },
-    { name = "click" },
-    { name = "httpx" },
-    { name = "ollama" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "scipy" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "beautifulsoup4", specifier = ">=4.12" },
-    { name = "click", specifier = ">=8.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "ollama", specifier = ">=0.3" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "rich", specifier = ">=13.7" },
-    { name = "scipy", specifier = ">=1.14" },
-]
-
-[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -275,13 +251,12 @@ wheels = [
 
 [[package]]
 name = "lila"
-version = "0.1.0"
+version = "0.0.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]
 dev = [
     { name = "black" },
-    { name = "marimo" },
     { name = "ruff" },
 ]
 
@@ -290,8 +265,39 @@ dev = [
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = ">=24.0" },
-    { name = "marimo", specifier = ">=0.9" },
     { name = "ruff", specifier = ">=0.5" },
+]
+
+[[package]]
+name = "lila-core"
+version = "0.0.1"
+source = { editable = "src/core" }
+
+[[package]]
+name = "loop-workflow-comparison-experiment"
+version = "0.1.0"
+source = { editable = "experiments/loop_workflow_comparison" }
+dependencies = [
+    { name = "beautifulsoup4" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "marimo" },
+    { name = "ollama" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "scipy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "beautifulsoup4" },
+    { name = "click" },
+    { name = "httpx" },
+    { name = "marimo" },
+    { name = "ollama" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "scipy" },
 ]
 
 [[package]]

@@ -1,3 +1,3 @@
 # Agent Guide
 
-- Before making any changes to the repo, refer to [CONVENTIONS.md](docs/CONVENTIONS.md).
+- Before making any changes to the repo, refer to [DEVELOPMENT.md](docs/DEVELOPMENT.md).

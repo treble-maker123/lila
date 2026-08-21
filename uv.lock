@@ -272,6 +272,12 @@ dev = [
 name = "lila-core"
 version = "0.0.1"
 source = { editable = "src/core" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx" }]
 
 [[package]]
 name = "loop-workflow-comparison-experiment"

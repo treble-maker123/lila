@@ -499,3 +499,140 @@ memory so the restart is not amnesiac.
 into one unbounded conversation. Two ways to bound it — close a session on idle or turn
 cap, or let it run unbounded and lean on hierarchical memory to summarize upward. The
 second is more interesting and is the reason to build the memory hierarchy first.
+
+## Plan
+
+Proof-of-concept shape: **three modules**, not nine. The proposals above stay the target
+design; the file split they implied is deferred until the slice actually runs. Splitting
+`executor.py` later is mechanical — splitting it now costs import churn while the
+interfaces are still moving.
+
+Everything lands in `src/core/src/lila/` unless noted.
+
+| File | Holds |
+|---|---|
+| `executor.py` | graph model + loader, `$.` paths, run memory + record, the run loop, `llm` handler |
+| `verification.py` | static check — the "compiled before it runs" half of the thesis |
+| `resources.py` | `Resource` protocol, registry, slot binding + typecheck |
+| `tools.py` | `tool.*` handlers — `tool.api` (IMAP mailbox), `tool.local` |
+| `data/skill-email-organization/` | the e-mail workflow graph, read at run time |
+
+Punted, tracked as TODO in-code:
+
+- **Stubs and replay** (`StubSet`, `StubSet.from_record`) — tests pass fake handlers
+  directly for now, which is enough to exercise the loop without a backend.
+
+Order is dependency order.
+
+| # | Task | Delivers | Depends on |
+|---|---|---|---|
+| T1 | Graph model + loader | typed graph from YAML | — |
+| T2 | Path expressions | `$.` resolve/render over run memory | T1 |
+| T3 | Run memory + record | append-only history, per-run log | T2 |
+| T4 | Run loop | nodes + edge routing, recursive run unit | T1–T3 |
+| T5 | `llm` node | constrained decoding via `Model` | T4 |
+| T6 | Resources + `tool.api` | slots, bindings, IMAP mailbox read | T4 |
+| T7 | Static check | dry-run validation of a graph | T1, T2, T6 |
+| T8 | E-mail organization skill | the proof | T5, T6, T7 |
+| — | *TODO* stubs + replay | run a graph with no backend | T3, T4 |
+
+### T1 — Graph model and loader → `executor.py`
+
+Frozen dataclasses `Graph`, `Node`, `Edge`, plus a per-type config dataclass
+(`LlmConfig`, `ApiConfig`, `LocalConfig`, `McpConfig`, `SkillRunConfig`) selected on
+`type:`. Loader is `load_graph(path) -> Graph` over `yaml.safe_load`, raising a
+`GraphError` carrying the offending node id. Node type → config class is a registry dict,
+so adding a transport is one entry. Inline `graph:` recurses through the same loader.
+Deps: add `pyyaml` to `src/core/pyproject.toml`.
+
+### T2 — Path expressions → `executor.py`
+
+Parse `$.a.b[0].c` / `[-1]` / `[*]` into a tuple of segments once, at load time, not per
+read. Two entry points: `resolve(memory, path)` and `render(template, memory)` for
+`{{ }}` in `prompt:` — the same parser both times, since only a `$.` path is legal inside
+braces. `[*]` returns a list; a bare node id means `[-1]`. Structured fields hold bare
+paths, parsed at load and stored as `Path` objects on the config dataclass.
+
+### T3 — Run memory and record → `executor.py`
+
+`RunMemory` wrapping `dict[str, list[Any]]` — append-only, one list per node id,
+`$.input` seeded at start, slots resolved to handles and never stored. Writes go through
+the node's `out:` schema (`jsonschema`, added as a dep). `RunRecord` with `NodeEntry`
+(inputs read, output, resources by name, timing, usage, backend version) and `EdgeEntry`
+(predicate, evaluated inputs, taken). Record and memory share the append-order structure,
+so serializing a record yields a stub set once stubs exist. A nested run gets its own
+`RunMemory` and a child `RunRecord` hung off the parent's node entry — the isolation rule
+falls out of not passing the parent's objects down.
+
+### T4 — Run loop → `executor.py`
+
+`async def run(graph, input, resources, handlers) -> RunResult`. Loop is `node = entry;
+while node != end: output = await handler(node); memory.append(node.id, output); node =
+first edge whose when: passes`. Handlers are a dict keyed by node type, so T5/T6 register
+into it rather than editing the loop — that registry is also the seam a stub set will
+wrap later. `skill.run` calls `run` again with a fresh memory built only from its
+`input:`/`resources:` — recursion is the same function, per P5. `when:` starts as a fixed
+predicate set (`==`, `!=`, `in`, truthiness, `true`) rather than an expression language;
+the open question stays open and the parser is one place. `return:` projects memory to the
+graph's output and validates it.
+
+### T5 — `llm` node → `executor.py`
+
+Handler renders `prompt:` via T2, calls `Model.complete` with `GenerateOptions(
+json_schema=node.out)`, parses the JSON, appends. Model aliases (`default`) resolve
+through a small registry so no file path or endpoint enters a graph. Tool grants land
+here in the one-tool variant only — `out:` *is* the argument schema and a `tool.*` node
+downstream reads `$.<node_id>`; native `tools:` needs `tools`/`tool_calls` on the `Model`
+protocol and is deferred out of the slice.
+
+### T6 — Resources and tools → `resources.py`, `tools.py`
+
+`resources.py`: a `Resource` protocol with `call(name, args) -> dict`, a registry mapping
+binding name → instance, and slot typechecking against a versioned interface
+(`mailbox@1`). Resolution happens once at run start; handles are passed in the execution
+context, never in memory.
+
+`tools.py`: the `tool.*` handlers. `tool.api` resolves `uses:` to a handle, renders
+`args:`, calls, validates the result against `out:`. `tool.local` comes along for free as
+the transform escape hatch; `tool.mcp` is deferred.
+
+**Mailbox: IMAP only.** The first (and for now only) `mailbox@1` implementation talks
+IMAP with an app password — for Gmail that means 2FA plus a 16-char app password, stored
+0600 outside the graph. No OAuth, no Google Cloud project, no consent screen. Pluggable
+SASL (`XOAUTH2` for Microsoft, OAuth for Gmail proper) was considered and dropped: it is
+provider-portability work that buys the slice nothing, and the auth strategy is easy to
+factor out later precisely because `mailbox@1` is already an interface.
+
+Cost to accept knowingly: IMAP flattens Gmail's model — labels appear as folders, so
+multi-label messages do not round-trip, and thread ids and Gmail search syntax are out of
+reach without the `X-GM-EXT-1` extensions. The skill below is written to that grain, one
+folder per message. Revisit if "organize" ever has to mean true multi-label.
+
+### T7 — Static check → `verification.py`
+
+`check(graph) -> list[Issue]`, pure, no I/O. Rules: unique node ids; slot names disjoint
+from node ids; edges reference real ids or `end`; entry reachable and `end` reachable from
+every node; every `$.` path resolves against a declared schema (node `out:`, graph
+`input:`, or a slot); every slot bound; unreachable edges after an unguarded one. This is
+`lila check <file>` and the first half of a dry run.
+
+Sequenced here, before the skill rather than after it, because it *is* the differentiator
+— "a workflow is checked before it runs, and a node can only touch the resources it
+declared" is the whole answer to the ambient-authority failures that agent-shaped
+assistants hit (a skill deleting drafts, duplicate sends). Shipping the proof without it
+would demo the wrong thing. Depends on T6 only for the slot-binding rule.
+
+### T8 — E-mail organization skill
+
+`data/skill-email-organization/skill.yaml` — the graph from the File format section,
+loaded from disk rather than built in code, so reshaping the workflow is a file edit.
+Proven against an isolated inbox. Success is: reshape the workflow (add a node, reorder
+edges) and the executor is untouched. Anything that forces an executor change here is a
+design bug worth folding back into the proposals above.
+
+### TODO — stubs and replay
+
+`load_stubs(path) -> StubSet`, a handler wrapper that intercepts by node id. Scalar
+answers every invocation, list is consumed in order, running past the end raises unless
+the fixture opts into repeat. Values validate against `out:` at load. Replay is
+`StubSet.from_record(record)` — same type, no second mechanism.

@@ -1,6 +1,7 @@
 # Workflow Executor Thin-Slice
 
-**Status**: on-going — proposals below are unreviewed.
+**Status**: on-going — T1–T7 implemented and unit-tested; T8 (proof against a real inbox)
+and stubs/replay remain. Proposals below are unreviewed.
 
 ## Goal
 
@@ -524,16 +525,16 @@ Punted, tracked as TODO in-code:
 
 Order is dependency order.
 
-| # | Task | Delivers | Depends on |
-|---|---|---|---|
-| T1 | Graph model + loader | typed graph from YAML | — |
-| T2 | Path expressions | `$.` resolve/render over run memory | T1 |
-| T3 | Run memory + record | append-only history, per-run log | T2 |
-| T4 | Run loop | nodes + edge routing, recursive run unit | T1–T3 |
-| T5 | `llm` node | constrained decoding via `Model` | T4 |
-| T6 | Resources + `tool.api` | slots, bindings, IMAP mailbox read | T4 |
-| T7 | Static check | dry-run validation of a graph | T1, T2, T6 |
-| T8 | E-mail organization skill | the proof | T5, T6, T7 |
+| # | Task | Delivers | Depends on | State |
+|---|---|---|---|---|
+| T1 | Graph model + loader | typed graph from YAML | — | done |
+| T2 | Path expressions | `$.` resolve/render over run memory | T1 | done |
+| T3 | Run memory + record | append-only history, per-run log | T2 | done |
+| T4 | Run loop | nodes + edge routing, recursive run unit | T1–T3 | done |
+| T5 | `llm` node | constrained decoding via `Model` | T4 | done |
+| T6 | Resources + `tool.api` | slots, bindings, IMAP mailbox read | T4 | done |
+| T7 | Static check | dry-run validation of a graph | T1, T2, T6 | done |
+| T8 | E-mail organization skill | the proof | T5, T6, T7 | file written, unproven |
 | — | *TODO* stubs + replay | run a graph with no backend | T3, T4 |
 
 ### T1 — Graph model and loader → `executor.py`

@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
-      "Bash(make format:*)"
+      "Bash(make format:*)",
+      "Bash(make update:*)",
+      "Bash(make run-smoke *)",
+      "Bash(make -C src/core test-unit)",
+      "Bash(make ci *)"
     ]
   }
 }

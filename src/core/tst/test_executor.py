@@ -1,0 +1,1019 @@
+"""Unit tests for lila.executor. No daemon, no network."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path as FilePath
+
+import pytest
+import yaml
+
+from lila.executor import (
+    Always,
+    ApiConfig,
+    Comparison,
+    Every,
+    Graph,
+    GraphError,
+    Handler,
+    Index,
+    Key,
+    LocalConfig,
+    NodeCall,
+    NodeResult,
+    RunContext,
+    RunError,
+    RunMemory,
+    SkillRunConfig,
+    Truthy,
+    describe,
+    evaluate,
+    llm_handler,
+    load_graph,
+    parse_graph,
+    parse_path,
+    parse_predicate,
+    resolve_skill_path,
+    run,
+    skill_run_handler,
+)
+from lila.model import GenerateEvent, GenerateOptions, Message, Model, TextChunk, Usage
+from lila.resources import ArgName, BindingName, CallName, InterfaceName, Resource
+from lila.values import Json
+
+# region fixtures
+
+GraphFactory = Callable[..., Graph]
+
+
+class ScriptedModel(Model):
+    """Backend replaying fixed completions, so an llm node needs no daemon."""
+
+    def __init__(self, texts: list[str]) -> None:
+        self.texts = texts
+        self.prompts: list[str] = []
+        self.options: list[GenerateOptions | None] = []
+
+    @property
+    def name(self) -> str:
+        return "scripted"
+
+    async def generate(
+        self,
+        messages: list[Message],
+        options: GenerateOptions | None = None,
+    ) -> AsyncIterator[GenerateEvent]:
+        self.prompts.append(messages[-1].content)
+        self.options.append(options)
+        yield TextChunk(text=self.texts.pop(0))
+        yield Usage(prompt_tokens=1, completion_tokens=2, done_reason="stop")
+
+
+class FakeMailbox:
+    """A mailbox@1 that answers from a dict, so tool.api needs no network."""
+
+    def __init__(self, messages: dict[str, dict[str, Json]]) -> None:
+        self.messages = messages
+        self.calls: list[tuple[CallName, dict[ArgName, Json]]] = []
+
+    @property
+    def name(self) -> BindingName:
+        return "fake-inbox"
+
+    @property
+    def interface(self) -> InterfaceName:
+        return "mailbox@1"
+
+    def call(self, operation: CallName, args: dict[ArgName, Json]) -> dict[str, Json]:
+        self.calls.append((operation, args))
+        return self.messages[str(args["id"])]
+
+
+def echo_handler(value: Json) -> Handler:
+    """Handler factory returning a fixed output for any node."""
+
+    async def handler(call: NodeCall) -> NodeResult:
+        return NodeResult(output=value)
+
+    return handler
+
+
+@pytest.fixture
+def graph_from() -> GraphFactory:
+    """Build a Graph from YAML source text."""
+
+    def build(source: str) -> Graph:
+        return parse_graph(yaml.safe_load(source))
+
+    return build
+
+
+LINEAR_GRAPH = """
+skill: linear
+version: 1
+entry: first
+input:
+  type: object
+  properties:
+    seed: { type: string }
+nodes:
+  - id: first
+    type: tool.local
+    call: echo
+    args: { value: $.input.seed }
+    out:
+      type: object
+      properties:
+        value: { type: string }
+      required: [value]
+edges:
+  - { from: first, to: end }
+return:
+  value: $.first.value
+"""
+
+# endregion
+
+# region parse_path
+
+
+def test_parse_path__splits_names_and_subscripts_when_path_is_nested() -> None:
+    # prepare
+    text = "$.classify[-2].scores[0].value"
+
+    # act
+    path = parse_path(text)
+
+    # verify
+    assert path.segments == (
+        Key("classify"),
+        Index(-2),
+        Key("scores"),
+        Index(0),
+        Key("value"),
+    )
+
+
+def test_parse_path__keeps_star_as_every_when_path_selects_all_executions() -> None:
+    # prepare
+    text = "$.classify[*]"
+
+    # act
+    path = parse_path(text)
+
+    # verify
+    assert path.segments == (Key("classify"), Every())
+
+
+def test_parse_path__raises_graph_error_when_text_is_not_a_path() -> None:
+    # act / verify
+    with pytest.raises(GraphError, match="not a path"):
+        parse_path("classify.route")
+
+
+def test_parse_path__raises_graph_error_when_syntax_is_malformed() -> None:
+    # act / verify
+    with pytest.raises(GraphError, match="bad path syntax"):
+        parse_path("$.classify..route")
+
+
+# endregion
+
+# region RunMemory
+
+
+def test_resolve__returns_latest_execution_when_path_has_no_subscript() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "first"})
+    memory.append("classify", {"route": "second"})
+
+    # act
+    value = memory.resolve(parse_path("$.classify.route"))
+
+    # verify
+    assert value == "second"
+
+
+def test_resolve__returns_earlier_execution_when_path_indexes_backwards() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "first"})
+    memory.append("classify", {"route": "second"})
+
+    # act
+    value = memory.resolve(parse_path("$.classify[-2].route"))
+
+    # verify
+    assert value == "first"
+
+
+def test_resolve__returns_every_execution_when_path_uses_star() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "a"})
+    memory.append("classify", {"route": "b"})
+
+    # act
+    value = memory.resolve(parse_path("$.classify[*]"))
+
+    # verify
+    assert value == [{"route": "a"}, {"route": "b"}]
+
+
+def test_resolve__reads_the_run_input_when_path_starts_at_input() -> None:
+    # prepare
+    memory = RunMemory({"message_id": "42"})
+
+    # act
+    value = memory.resolve(parse_path("$.input.message_id"))
+
+    # verify
+    assert value == "42"
+
+
+def test_resolve__returns_the_handle_when_path_names_a_bound_slot() -> None:
+    # prepare
+    mailbox = FakeMailbox({})
+    memory = RunMemory({}, {"inbox": mailbox})
+
+    # act
+    value = memory.resolve(parse_path("$.inbox"))
+
+    # verify
+    assert value is mailbox
+
+
+def test_resolve__raises_run_error_when_path_reads_into_a_resource() -> None:
+    # prepare
+    memory = RunMemory({}, {"inbox": FakeMailbox({})})
+
+    # act / verify
+    with pytest.raises(RunError, match="resource handle"):
+        memory.resolve(parse_path("$.inbox.password"))
+
+
+def test_resolve__raises_run_error_when_node_has_no_history() -> None:
+    # prepare
+    memory = RunMemory({})
+
+    # act / verify
+    with pytest.raises(RunError, match="names nothing"):
+        memory.resolve(parse_path("$.classify.route"))
+
+
+def test_append__keeps_history_when_a_node_runs_twice() -> None:
+    # prepare
+    memory = RunMemory({})
+
+    # act
+    memory.append("loop", {"n": 1})
+    memory.append("loop", {"n": 2})
+
+    # verify
+    assert memory.history("loop") == [{"n": 1}, {"n": 2}]
+
+
+def test_render__substitutes_paths_when_prompt_has_holes() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("fetch", {"subject": "hi", "count": 2})
+
+    # act
+    rendered = memory.render("s: {{ $.fetch.subject }} n: {{ $.fetch.count }}")
+
+    # verify
+    assert rendered == "s: hi n: 2"
+
+
+def test_resolve_value__resolves_nested_paths_when_args_are_structured() -> None:
+    # prepare
+    memory = RunMemory({"id": "7"})
+    args = {"id": parse_path("$.input.id"), "flags": ["seen", parse_path("$.input.id")]}
+
+    # act
+    resolved = memory.resolve_value(args)
+
+    # verify
+    assert resolved == {"id": "7", "flags": ["seen", "7"]}
+
+
+# endregion
+
+# region parse_predicate
+
+
+def test_parse_predicate__returns_always_when_when_is_true() -> None:
+    # act / verify
+    assert parse_predicate(True) == Always()
+    assert parse_predicate("true") == Always()
+
+
+def test_parse_predicate__returns_comparison_when_when_compares_to_a_literal() -> None:
+    # act
+    predicate = parse_predicate('$.classify.route == "reply"')
+
+    # verify
+    assert predicate == Comparison(op="==", left=parse_path("$.classify.route"), right="reply")
+
+
+def test_parse_predicate__returns_truthy_when_when_is_a_bare_path() -> None:
+    # act
+    predicate = parse_predicate("$.classify.route")
+
+    # verify
+    assert predicate == Truthy(path=parse_path("$.classify.route"))
+
+
+def test_parse_predicate__raises_graph_error_when_when_is_an_expression() -> None:
+    # act / verify
+    with pytest.raises(GraphError, match="unsupported when"):
+        parse_predicate("$.a.b + 1 > 2")
+
+
+# endregion
+
+# region describe
+
+
+def test_describe__renders_true_when_the_edge_is_unguarded() -> None:
+    # act / verify
+    assert describe(None) == "true"
+    assert describe(Always()) == "true"
+
+
+def test_describe__renders_the_source_text_when_the_edge_is_guarded() -> None:
+    # act / verify
+    assert describe(parse_predicate("$.classify.route")) == "$.classify.route"
+    assert describe(parse_predicate('$.classify.route == "reply"')) == '$.classify.route == "reply"'
+    assert describe(parse_predicate("$.a.b in $.c.d")) == "$.a.b in $.c.d"
+
+
+# endregion
+
+# region evaluate
+
+
+def test_evaluate__reports_the_values_read_when_comparison_holds() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "reply"})
+
+    # act
+    taken, inputs = evaluate(parse_predicate('$.classify.route == "reply"'), memory)
+
+    # verify
+    assert taken is True
+    assert inputs == {"$.classify.route": "reply"}
+
+
+def test_evaluate__returns_false_when_comparison_does_not_hold() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "flag"})
+
+    # act
+    taken, _ = evaluate(parse_predicate('$.classify.route == "reply"'), memory)
+
+    # verify
+    assert taken is False
+
+
+def test_evaluate__returns_true_when_membership_holds() -> None:
+    # prepare
+    memory = RunMemory({})
+    memory.append("classify", {"route": "flag"})
+
+    # act
+    taken, _ = evaluate(parse_predicate('$.classify.route in ["flag", "reply"]'), memory)
+
+    # verify
+    assert taken is True
+
+
+# endregion
+
+# region load_graph
+
+
+def test_load_graph__builds_typed_nodes_when_file_declares_them(tmp_path: FilePath) -> None:
+    # prepare
+    path = tmp_path / "skill.yaml"
+    path.write_text(LINEAR_GRAPH)
+
+    # act
+    graph = load_graph(path)
+
+    # verify
+    assert graph.skill == "linear"
+    assert graph.entry == "first"
+    assert isinstance(graph.nodes[0].config, LocalConfig)
+    assert graph.returns["value"].text == "$.first.value"
+
+
+def test_parse_graph__compiles_args_paths_when_node_is_a_tool(graph_from: GraphFactory) -> None:
+    # prepare / act
+    graph = graph_from(LINEAR_GRAPH)
+
+    # verify
+    config = graph.nodes[0].config
+    assert isinstance(config, LocalConfig)
+    assert config.args["value"] == parse_path("$.input.seed")
+
+
+def test_parse_graph__normalizes_graph_run_to_skill_run(graph_from: GraphFactory) -> None:
+    # prepare / act
+    graph = graph_from("""
+        skill: nesting
+        entry: child
+        nodes:
+          - { id: child, type: graph.run, ref: other@1 }
+        edges:
+          - { from: child, to: end }
+        """)
+
+    # verify
+    assert graph.nodes[0].type == "skill.run"
+    assert isinstance(graph.nodes[0].config, SkillRunConfig)
+
+
+def test_parse_graph__keeps_comments_when_the_author_left_them(graph_from: GraphFactory) -> None:
+    # prepare / act
+    graph = graph_from("""
+        skill: annotated
+        comment: the whole flow
+        entry: first
+        nodes:
+          - { id: first, type: tool.local, call: echo, comment: why this node }
+        edges:
+          - { from: first, to: end, comment: why this branch }
+        """)
+
+    # verify
+    assert graph.comment == "the whole flow"
+    assert graph.nodes[0].comment == "why this node"
+    assert graph.edges[0].comment == "why this branch"
+
+
+def test_parse_graph__defaults_comments_to_empty_when_absent(graph_from: GraphFactory) -> None:
+    # prepare / act
+    graph = graph_from(LINEAR_GRAPH)
+
+    # verify
+    assert graph.comment == ""
+    assert graph.nodes[0].comment == ""
+    assert graph.edges[0].comment == ""
+
+
+def test_parse_graph__raises_graph_error_naming_the_node_when_type_is_unknown() -> None:
+    # act / verify
+    with pytest.raises(GraphError) as caught:
+        parse_graph(
+            {
+                "entry": "a",
+                "nodes": [{"id": "a", "type": "tool.smoke"}],
+                "edges": [],
+            }
+        )
+    assert caught.value.node_id == "a"
+
+
+def test_parse_graph__raises_graph_error_when_args_hold_a_non_json_yaml_type(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — an unquoted date is a datetime.date, which no run can record
+    with pytest.raises(GraphError, match="must be JSON — got date"):
+        graph_from("""
+            skill: dated
+            entry: first
+            nodes:
+              - { id: first, type: tool.local, call: echo, args: { since: 2026-01-01 } }
+            edges:
+              - { from: first, to: end }
+            """)
+
+
+def test_parse_graph__raises_graph_error_when_skill_run_has_both_ref_and_graph() -> None:
+    # act / verify
+    with pytest.raises(GraphError, match="exactly one of"):
+        parse_graph(
+            {
+                "entry": "a",
+                "nodes": [{"id": "a", "type": "skill.run", "ref": "x@1", "graph": {}}],
+                "edges": [],
+            }
+        )
+
+
+# endregion
+
+# region run
+
+
+async def test_run__projects_memory_to_output_when_graph_returns(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(LINEAR_GRAPH)
+    context = RunContext(
+        handlers={"tool.local": echo_handler({"value": "seeded"})},
+    )
+
+    # act
+    result = await run(graph, {"seed": "seeded"}, context)
+
+    # verify
+    assert result.output == {"value": "seeded"}
+
+
+async def test_run__takes_the_first_matching_edge_when_several_are_guarded(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: routing
+        entry: classify
+        nodes:
+          - id: classify
+            type: tool.local
+            call: fixed
+            out: { type: object, properties: { route: { type: string } } }
+          - id: draft
+            type: tool.local
+            call: fixed
+        edges:
+          - { from: classify, to: draft, when: $.classify.route == "reply" }
+          - { from: classify, to: end, when: true }
+          - { from: draft, to: end }
+        """)
+    context = RunContext(handlers={"tool.local": echo_handler({"route": "reply"})})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    assert [entry.node_id for entry in result.record.nodes] == ["classify", "draft"]
+
+
+async def test_run__falls_through_to_the_unguarded_edge_when_no_guard_matches(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: routing
+        entry: classify
+        nodes:
+          - id: classify
+            type: tool.local
+            call: fixed
+          - id: draft
+            type: tool.local
+            call: fixed
+        edges:
+          - { from: classify, to: draft, when: $.classify.route == "reply" }
+          - { from: classify, to: end, when: true }
+          - { from: draft, to: end }
+        """)
+    context = RunContext(handlers={"tool.local": echo_handler({"route": "flag"})})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    assert [entry.node_id for entry in result.record.nodes] == ["classify"]
+
+
+async def test_run__raises_run_error_naming_the_node_when_output_breaks_its_schema(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(LINEAR_GRAPH)
+    context = RunContext(handlers={"tool.local": echo_handler({"value": 7})})
+
+    # act / verify
+    with pytest.raises(RunError) as caught:
+        await run(graph, {"seed": "x"}, context)
+    assert caught.value.node_id == "first"
+
+
+async def test_run__raises_run_error_when_graph_input_breaks_its_schema(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(LINEAR_GRAPH)
+    context = RunContext(handlers={"tool.local": echo_handler({"value": "x"})})
+
+    # act / verify
+    with pytest.raises(RunError, match="graph input"):
+        await run(graph, {"seed": 7}, context)
+
+
+async def test_run__raises_run_error_when_a_node_loops_past_max_steps(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: looping
+        entry: spin
+        nodes:
+          - { id: spin, type: tool.local, call: fixed }
+        edges:
+          - { from: spin, to: spin }
+        """)
+    context = RunContext(handlers={"tool.local": echo_handler({})}, max_steps=3)
+
+    # act / verify
+    with pytest.raises(RunError, match="exceeded 3 steps"):
+        await run(graph, {}, context)
+
+
+async def test_run__records_every_edge_with_its_evaluated_inputs(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: routing
+        entry: classify
+        nodes:
+          - { id: classify, type: tool.local, call: fixed }
+        edges:
+          - { from: classify, to: end, when: $.classify.route == "reply" }
+          - { from: classify, to: end, when: true }
+        """)
+    context = RunContext(handlers={"tool.local": echo_handler({"route": "flag"})})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    assert [(edge.taken, edge.inputs) for edge in result.record.edges] == [
+        (False, {"$.classify.route": "flag"}),
+        (True, {}),
+    ]
+
+
+async def test_run__records_resources_by_name_when_a_node_uses_a_slot(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: slotted
+        requires: { inbox: mailbox@1 }
+        entry: fetch
+        nodes:
+          - { id: fetch, type: tool.api, uses: inbox, call: get_message, args: { id: "1" } }
+        edges:
+          - { from: fetch, to: end }
+        """)
+
+    async def handler(call: NodeCall) -> NodeResult:
+        config = call.node.config
+        assert isinstance(config, ApiConfig)
+        return NodeResult(output={}, resources=(config.uses,))
+
+    context = RunContext(handlers={"tool.api": handler})
+
+    # act
+    result = await run(graph, {}, context, {"inbox": FakeMailbox({})})
+
+    # verify
+    assert result.record.nodes[0].resources == ("inbox",)
+
+
+async def test_run__raises_run_error_when_a_declared_slot_is_unbound(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: slotted
+        requires: { inbox: mailbox@1 }
+        entry: fetch
+        nodes:
+          - { id: fetch, type: tool.api, uses: inbox, call: get_message }
+        edges:
+          - { from: fetch, to: end }
+        """)
+    context = RunContext(handlers={"tool.api": echo_handler({})})
+
+    # act / verify
+    with pytest.raises(RunError, match="unbound"):
+        await run(graph, {}, context)
+
+
+async def test_run__raises_run_error_when_a_binding_implements_another_interface(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: slotted
+        requires: { inbox: calendar@1 }
+        entry: fetch
+        nodes:
+          - { id: fetch, type: tool.api, uses: inbox, call: get_message }
+        edges:
+          - { from: fetch, to: end }
+        """)
+    context = RunContext(handlers={"tool.api": echo_handler({})})
+
+    # act / verify
+    with pytest.raises(RunError, match="calendar@1"):
+        await run(graph, {}, context, {"inbox": FakeMailbox({})})
+
+
+async def test_run__records_the_stub_set_shape_when_a_node_runs_twice(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: twice
+        entry: a
+        nodes:
+          - { id: a, type: tool.local, call: fixed }
+          - { id: b, type: tool.local, call: fixed }
+        edges:
+          - { from: a, to: b }
+          - { from: b, to: end }
+        """)
+    context = RunContext(handlers={"tool.local": echo_handler({"n": 1})})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    assert result.record.stub_set() == {"a": [{"n": 1}], "b": [{"n": 1}]}
+
+
+# endregion
+
+# region llm_handler
+
+
+async def test_llm_handler__constrains_decoding_to_the_out_schema(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: classifying
+        entry: classify
+        input: { type: object, properties: { subject: { type: string } } }
+        nodes:
+          - id: classify
+            type: llm
+            prompt: "Subject: {{ $.input.subject }}"
+            out:
+              type: object
+              properties: { route: { type: string } }
+              required: [route]
+        edges:
+          - { from: classify, to: end }
+        return: { route: $.classify.route }
+        """)
+    model = ScriptedModel(['{"route": "reply"}'])
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": model})
+
+    # act
+    result = await run(graph, {"subject": "hello"}, context)
+
+    # verify
+    assert result.output == {"route": "reply"}
+    assert model.prompts == ["Subject: hello"]
+    assert model.options[0] is not None
+    assert model.options[0].json_schema == graph.nodes[0].out
+
+
+async def test_llm_handler__records_usage_and_model_when_the_call_succeeds(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: classifying
+        entry: classify
+        nodes:
+          - id: classify
+            type: llm
+            prompt: "hi"
+            out: { type: object, properties: { route: { type: string } } }
+        edges:
+          - { from: classify, to: end }
+        """)
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": ScriptedModel(["{}"])})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    entry = result.record.nodes[0]
+    assert entry.model == "scripted"
+    assert entry.usage == Usage(prompt_tokens=1, completion_tokens=2, done_reason="stop")
+
+
+async def test_llm_handler__raises_run_error_when_the_model_returns_non_json(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: classifying
+        entry: classify
+        nodes:
+          - id: classify
+            type: llm
+            prompt: "hi"
+            out: { type: object }
+        edges:
+          - { from: classify, to: end }
+        """)
+    context = RunContext(
+        handlers={"llm": llm_handler}, models={"default": ScriptedModel(["not json"])}
+    )
+
+    # act / verify
+    with pytest.raises(RunError, match="did not return JSON"):
+        await run(graph, {}, context)
+
+
+async def test_llm_handler__raises_run_error_when_the_alias_is_unbound(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: classifying
+        entry: classify
+        nodes:
+          - { id: classify, type: llm, model: big, prompt: "hi" }
+        edges:
+          - { from: classify, to: end }
+        """)
+    context = RunContext(handlers={"llm": llm_handler})
+
+    # act / verify
+    with pytest.raises(RunError, match="alias 'big'"):
+        await run(graph, {}, context)
+
+
+# endregion
+
+# region skill_run_handler
+
+CHILD_GRAPH = """
+skill: child
+entry: work
+input:
+  type: object
+  properties:
+    subject: { type: string }
+nodes:
+  - id: work
+    type: tool.local
+    call: fixed
+    out: { type: object, properties: { note: { type: string } } }
+edges:
+  - { from: work, to: end }
+return:
+  note: $.work.note
+"""
+
+
+async def test_skill_run__lands_the_child_output_at_the_node_id(
+    graph_from: GraphFactory, tmp_path: FilePath
+) -> None:
+    # prepare
+    (tmp_path / "child.yaml").write_text(CHILD_GRAPH)
+    parent = graph_from("""
+        skill: parent
+        entry: gather
+        nodes:
+          - id: gather
+            type: skill.run
+            ref: child.yaml
+            input: { subject: "hi" }
+        edges:
+          - { from: gather, to: end }
+        return: { note: $.gather.note }
+        """)
+    context = RunContext(
+        handlers={"skill.run": skill_run_handler, "tool.local": echo_handler({"note": "seen"})},
+        skills=resolve_skill_path(tmp_path),
+    )
+
+    # act
+    result = await run(parent, {}, context)
+
+    # verify
+    assert result.output == {"note": "seen"}
+
+
+async def test_skill_run__hangs_the_child_record_off_the_parent_entry(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from("""
+        skill: parent
+        entry: gather
+        nodes:
+          - id: gather
+            type: skill.run
+            input: {}
+            graph:
+              skill: inline
+              entry: work
+              nodes:
+                - { id: work, type: tool.local, call: fixed }
+              edges:
+                - { from: work, to: end }
+        edges:
+          - { from: gather, to: end }
+        """)
+    context = RunContext(
+        handlers={"skill.run": skill_run_handler, "tool.local": echo_handler({"note": "seen"})},
+    )
+
+    # act
+    result = await run(parent, {}, context)
+
+    # verify
+    child = result.record.nodes[0].child
+    assert child is not None
+    assert [entry.node_id for entry in child.nodes] == ["work"]
+
+
+async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — the child asks for a parent node it was not handed
+    parent = graph_from("""
+        skill: parent
+        entry: seed
+        nodes:
+          - { id: seed, type: tool.local, call: fixed }
+          - id: gather
+            type: skill.run
+            input: {}
+            graph:
+              skill: inline
+              entry: work
+              nodes:
+                - { id: work, type: tool.local, call: peek, args: { seen: $.seed.note } }
+              edges:
+                - { from: work, to: end }
+        edges:
+          - { from: seed, to: gather }
+          - { from: gather, to: end }
+        """)
+
+    async def peek(call: NodeCall) -> NodeResult:
+        config = call.node.config
+        assert isinstance(config, LocalConfig)
+        return NodeResult(output=call.memory.resolve_value(config.args))
+
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool.local": peek})
+
+    # act / verify
+    with pytest.raises(RunError, match="names nothing"):
+        await run(parent, {}, context)
+
+
+async def test_skill_run__passes_a_slot_down_when_the_node_maps_resources(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from("""
+        skill: parent
+        requires: { inbox: mailbox@1 }
+        entry: gather
+        nodes:
+          - id: gather
+            type: skill.run
+            resources: { box: $.inbox }
+            input: {}
+            graph:
+              skill: inline
+              requires: { box: mailbox@1 }
+              entry: work
+              nodes:
+                - { id: work, type: tool.api, uses: box, call: get_message, args: { id: "1" } }
+              edges:
+                - { from: work, to: end }
+              return: { subject: $.work.subject }
+        edges:
+          - { from: gather, to: end }
+        return: { subject: $.gather.subject }
+        """)
+    mailbox = FakeMailbox({"1": {"subject": "hi"}})
+
+    async def api(call: NodeCall) -> NodeResult:
+        config = call.node.config
+        assert isinstance(config, ApiConfig)
+        handle: Resource | None = call.memory.resources.get(config.uses)
+        assert handle is not None
+        return NodeResult(output=handle.call(config.call, call.memory.resolve_mapping(config.args)))
+
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool.api": api})
+
+    # act
+    result = await run(parent, {}, context, {"inbox": mailbox})
+
+    # verify
+    assert result.output == {"subject": "hi"}
+
+
+# endregion

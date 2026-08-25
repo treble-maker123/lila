@@ -206,7 +206,9 @@ def test_request_body__omits_unset_knobs_so_backend_defaults_win(model: OllamaMo
     body = model._request_body([], GenerateOptions())
 
     # verify
-    assert set(body["options"]) == {"temperature"}
+    options = body["options"]
+    assert isinstance(options, dict)
+    assert set(options) == {"temperature"}
     assert "format" not in body
     assert "think" not in body
 

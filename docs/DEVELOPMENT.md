@@ -6,13 +6,37 @@ Please follow the conventions in this document when developing in this repo.
 
 - After making any changes to Python files, run `make format` and `make typecheck` from the repo root.
 - Always use absolute imports.
-- Always specify explicit types on function inputs and outputs. If there are more than one field, model it as a class.
+- Always specify explicit types on function inputs and outputs. If there are more than one field, model it as a class. See [Typing](#typing).
 - Product code uses stdlib dataclasses, not Pydantic. Pydantic is allowed only in throw-away code off the user path — experiments, scripts, and one-off analysis.
 - Common commands and scripts should be encapsulated in submodule Makefile. Before running an arbitrary command, check the submodule as well as parent Makefile first.
 - Never pin or bound dependency versions in `pyproject.toml`. `uv.lock` already records the exact resolved versions, so constraints add nothing to traceability and only block resolution. Add a bound only when a specific version is known to be broken, with a comment saying why.
 - Declare dependencies in the `pyproject.toml` of the package that uses them, not the workspace root. Test dependencies belong to the package's own `dev` group.
 - Edit files one block at a time. Don't bulk-rewrite a file with a script (python/sed) — those changes are hard to review as they land.
 - Keep docs concise. Trim prose to the load-bearing sentence; drop restatements, hedging, and anything the reader can't act on. State each fact once and reference it from elsewhere.
+
+## Typing
+
+Names and values both get a specific type. A reader should never have to guess what a
+`str` holds or what a `dict` may contain.
+
+- **No `Any`, and no `object` in its place.** Both erase the same information. Narrow at
+  the boundary with `isinstance` or a `TypeGuard` and carry a real type inward. `Any` is
+  allowed only where a library returns it and the value is checked on the next line.
+- **Alias every domain `str`.** `type NodeId = str`, `type SlotName = str` — a plain PEP
+  695 alias with a trailing comment saying what belongs in it. Not `NewType`: these come
+  from parsed files, and wrapping at every field buys nothing. Not `Annotated`: it reads
+  as metadata the checker enforces, and it doesn't.
+- **Use a `Literal` where the set is closed** (`NodeType`), and key dispatch tables on it
+  so a typo fails the typecheck instead of silently never matching.
+- **Values speak the vocabulary in `lila.values`.** `Json` is anything crossing a node
+  boundary — that is what makes a run recordable. `Yaml` is what `yaml.safe_load` can
+  build, which is wider (dates, binary, sets), so a graph file is narrowed to `Json`
+  during load rather than assumed. Modules add their own where they need one, e.g.
+  `Compiled` in `lila.executor`.
+- **Recursive aliases are invariant**, so `list[str]` is not a `list[Json]`. Annotate the
+  local (`ids: list[Json] = [...]`) rather than casting.
+- Own each name in the lowest module that needs it and import it from there;
+  basedpyright rejects a re-export through an intermediate module.
 
 ## Tests
 

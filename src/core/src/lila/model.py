@@ -11,9 +11,11 @@ from abc import abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 import httpx
+
+from lila.values import Json, JsonSchema
 
 Role = Literal["system", "user", "assistant"]
 
@@ -24,20 +26,27 @@ DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=300.0, write=30.0, pool=5.0)
 
 @dataclass(frozen=True, slots=True)
 class Message:
+    """One turn of a conversation sent to a backend."""
+
     role: Role
     content: str
 
 
 @dataclass(frozen=True, slots=True)
 class GenerateOptions:
+    """Per-call decoding settings. A backend maps these onto its own parameters.
+
+    Every field is optional, and None means the backend's own default.
+    """
+
     # Raw JSON Schema. When set, the backend constrains decoding to it — this is how an
     # LLM node declares its output shape instead of asking for JSON in the prompt.
-    json_schema: dict[str, Any] | None = None
+    json_schema: JsonSchema | None = None
     # Deterministic by default; a node opts into sampling explicitly.
     temperature: float = 0.0
     seed: int | None = None
     max_tokens: int | None = None
-    stop: tuple[str, ...] = ()
+    stop: tuple[str, ...] = ()  # sequences that end the completion
     # Model context window. None leaves the backend default.
     context_length: int | None = None
     # Reasoning models only. None leaves the backend default.
@@ -46,18 +55,24 @@ class GenerateOptions:
 
 @dataclass(frozen=True, slots=True)
 class TextChunk:
+    """A piece of the answer, as it streams."""
+
     text: str
     kind: Literal["text"] = "text"
 
 
 @dataclass(frozen=True, slots=True)
 class ThinkingChunk:
+    """A piece of reasoning. Shown to a human, never fed back into the graph."""
+
     text: str
     kind: Literal["thinking"] = "thinking"
 
 
 @dataclass(frozen=True, slots=True)
 class Usage:
+    """The last event of a stream: what the completion cost."""
+
     prompt_tokens: int
     completion_tokens: int
     # Why the backend stopped, e.g. "stop" or "length".
@@ -71,13 +86,25 @@ GenerateEvent = TextChunk | ThinkingChunk | Usage
 
 @dataclass(frozen=True, slots=True)
 class Completion:
+    """A whole stream, collected — what a non-streaming caller gets."""
+
     text: str
-    thinking: str
-    usage: Usage | None = None
+    thinking: str  # concatenated ThinkingChunks; empty for a non-reasoning model
+    usage: Usage | None = None  # None when the backend reported none
 
 
 class ModelError(RuntimeError):
     """A backend failed to produce a completion."""
+
+
+def _text(value: Json) -> str:
+    """A field a backend sends as text, or "" when it is missing or another type."""
+    return value if isinstance(value, str) else ""
+
+
+def _count(value: Json) -> int:
+    """A token count, or 0 when the backend reported none."""
+    return value if isinstance(value, int) else 0
 
 
 class Model(Protocol):
@@ -171,11 +198,11 @@ class OllamaModel(Model):
         self,
         messages: list[Message],
         options: GenerateOptions | None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Json]:
         opts = options or GenerateOptions()
         # Ollama nests sampling knobs under "options"; unset ones are omitted so its own
         # defaults win rather than being overwritten with ours.
-        sampling: dict[str, Any] = {"temperature": opts.temperature}
+        sampling: dict[str, Json] = {"temperature": opts.temperature}
         if opts.seed is not None:
             sampling["seed"] = opts.seed
         if opts.max_tokens is not None:
@@ -185,7 +212,7 @@ class OllamaModel(Model):
         if opts.context_length is not None:
             sampling["num_ctx"] = opts.context_length
 
-        body: dict[str, Any] = {
+        body: dict[str, Json] = {
             "model": self._model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
@@ -201,25 +228,28 @@ class OllamaModel(Model):
     def _parse_chat_line(line: str) -> list[GenerateEvent]:
         """Turn one NDJSON line from /api/chat into zero or more events."""
         try:
-            payload: dict[str, Any] = json.loads(line)
+            payload: Json = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ModelError(f"ollama sent a malformed line: {line!r}") from exc
+        if not isinstance(payload, dict):
+            raise ModelError(f"ollama sent a line that is not an object: {line!r}")
 
         if error := payload.get("error"):
             raise ModelError(f"ollama reported an error: {error}")
 
         events: list[GenerateEvent] = []
-        message: dict[str, Any] = payload.get("message") or {}
-        if thinking := message.get("thinking"):
+        raw_message = payload.get("message")
+        message: dict[str, Json] = raw_message if isinstance(raw_message, dict) else {}
+        if thinking := _text(message.get("thinking")):
             events.append(ThinkingChunk(text=thinking))
-        if content := message.get("content"):
+        if content := _text(message.get("content")):
             events.append(TextChunk(text=content))
         if payload.get("done"):
             events.append(
                 Usage(
-                    prompt_tokens=payload.get("prompt_eval_count", 0),
-                    completion_tokens=payload.get("eval_count", 0),
-                    done_reason=payload.get("done_reason"),
+                    prompt_tokens=_count(payload.get("prompt_eval_count")),
+                    completion_tokens=_count(payload.get("eval_count")),
+                    done_reason=_text(payload.get("done_reason")) or None,
                 )
             )
         return events

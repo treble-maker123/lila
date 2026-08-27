@@ -10,7 +10,6 @@ import yaml
 
 from lila.executor import (
     Always,
-    ApiConfig,
     Comparison,
     Every,
     Graph,
@@ -18,13 +17,13 @@ from lila.executor import (
     Handler,
     Index,
     Key,
-    LocalConfig,
     NodeCall,
     NodeResult,
     RunContext,
     RunError,
     RunMemory,
     SkillRunConfig,
+    ToolConfig,
     Truthy,
     describe,
     evaluate,
@@ -38,7 +37,7 @@ from lila.executor import (
     skill_run_handler,
 )
 from lila.model import GenerateEvent, GenerateOptions, Message, Model, TextChunk, Usage
-from lila.resources import ArgName, BindingName, CallName, InterfaceName, Resource
+from lila.resources import Instance
 from lila.values import Json
 
 # region fixtures
@@ -69,24 +68,16 @@ class ScriptedModel(Model):
         yield Usage(prompt_tokens=1, completion_tokens=2, done_reason="stop")
 
 
-class FakeMailbox:
-    """A mailbox@1 that answers from a dict, so tool.api needs no network."""
+MAILBOX = "test/fixture@1/mailbox"
 
-    def __init__(self, messages: dict[str, dict[str, Json]]) -> None:
-        self.messages = messages
-        self.calls: list[tuple[CallName, dict[ArgName, Json]]] = []
 
-    @property
-    def name(self) -> BindingName:
-        return "fake-inbox"
+class FakeHandle:
+    """Stands in for an extension's own resource object; the loop never looks inside."""
 
-    @property
-    def interface(self) -> InterfaceName:
-        return "mailbox@1"
 
-    def call(self, operation: CallName, args: dict[ArgName, Json]) -> dict[str, Json]:
-        self.calls.append((operation, args))
-        return self.messages[str(args["id"])]
+def instance(name: str = "fake-inbox", type_ref: str = MAILBOX) -> Instance:
+    """One configured resource, as an install would have built it."""
+    return Instance(name=name, type=type_ref, handle=FakeHandle())
 
 
 def echo_handler(value: Json) -> Handler:
@@ -118,14 +109,10 @@ input:
     seed: { type: string }
 nodes:
   - id: first
-    type: tool.local
+    type: tool
+    resource: store
     call: echo
     args: { value: $.input.seed }
-    out:
-      type: object
-      properties:
-        value: { type: string }
-      required: [value]
 edges:
   - { from: first, to: end }
 return:
@@ -232,25 +219,13 @@ def test_resolve__reads_the_run_input_when_path_starts_at_input() -> None:
     assert value == "42"
 
 
-def test_resolve__returns_the_handle_when_path_names_a_bound_slot() -> None:
-    # prepare
-    mailbox = FakeMailbox({})
-    memory = RunMemory({}, {"inbox": mailbox})
-
-    # act
-    value = memory.resolve(parse_path("$.inbox"))
-
-    # verify
-    assert value is mailbox
-
-
-def test_resolve__raises_run_error_when_path_reads_into_a_resource() -> None:
-    # prepare
-    memory = RunMemory({}, {"inbox": FakeMailbox({})})
+def test_resolve__does_not_reach_a_resource_when_a_path_names_one() -> None:
+    # prepare — $. is memory and only memory, so a handle can never be read as a value
+    memory = RunMemory({}, {"inbox": instance()})
 
     # act / verify
-    with pytest.raises(RunError, match="resource handle"):
-        memory.resolve(parse_path("$.inbox.password"))
+    with pytest.raises(RunError, match="names nothing"):
+        memory.resolve(parse_path("$.inbox"))
 
 
 def test_resolve__raises_run_error_when_node_has_no_history() -> None:
@@ -407,7 +382,7 @@ def test_load_graph__builds_typed_nodes_when_file_declares_them(tmp_path: FilePa
     # verify
     assert graph.skill == "linear"
     assert graph.entry == "first"
-    assert isinstance(graph.nodes[0].config, LocalConfig)
+    assert isinstance(graph.nodes[0].config, ToolConfig)
     assert graph.returns["value"].text == "$.first.value"
 
 
@@ -417,7 +392,7 @@ def test_parse_graph__compiles_args_paths_when_node_is_a_tool(graph_from: GraphF
 
     # verify
     config = graph.nodes[0].config
-    assert isinstance(config, LocalConfig)
+    assert isinstance(config, ToolConfig)
     assert config.args["value"] == parse_path("$.input.seed")
 
 
@@ -444,7 +419,7 @@ def test_parse_graph__keeps_comments_when_the_author_left_them(graph_from: Graph
         comment: the whole flow
         entry: first
         nodes:
-          - { id: first, type: tool.local, call: echo, comment: why this node }
+          - { id: first, type: tool, resource: store, call: echo, comment: why this node }
         edges:
           - { from: first, to: end, comment: why this branch }
         """)
@@ -455,12 +430,33 @@ def test_parse_graph__keeps_comments_when_the_author_left_them(graph_from: Graph
     assert graph.edges[0].comment == "why this branch"
 
 
+def test_parse_graph__reads_the_description_when_the_skill_declares_one(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare / act
+    graph = graph_from("""
+        skill: described
+        description: >-
+          Summarizes a mailbox
+          in one line.
+        entry: first
+        nodes:
+          - { id: first, type: llm, prompt: one }
+        edges:
+          - { from: first, to: end }
+        """)
+
+    # verify
+    assert graph.description == "Summarizes a mailbox in one line."
+
+
 def test_parse_graph__defaults_comments_to_empty_when_absent(graph_from: GraphFactory) -> None:
     # prepare / act
     graph = graph_from(LINEAR_GRAPH)
 
     # verify
     assert graph.comment == ""
+    assert graph.description == ""
     assert graph.nodes[0].comment == ""
     assert graph.edges[0].comment == ""
 
@@ -487,7 +483,26 @@ def test_parse_graph__raises_graph_error_when_args_hold_a_non_json_yaml_type(
             skill: dated
             entry: first
             nodes:
-              - { id: first, type: tool.local, call: echo, args: { since: 2026-01-01 } }
+              - { id: first, type: tool, resource: store, call: echo, args: { since: 2026-01-01 } }
+            edges:
+              - { from: first, to: end }
+            """)
+
+
+def test_parse_graph__raises_graph_error_when_a_tool_node_declares_out(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — the tool declares its result schema; the graph cannot disagree
+    with pytest.raises(GraphError, match="its tool does"):
+        graph_from("""
+            skill: doubled
+            entry: first
+            nodes:
+              - id: first
+                type: tool
+                resource: store
+                call: echo
+                out: { type: object }
             edges:
               - { from: first, to: end }
             """)
@@ -516,7 +531,7 @@ async def test_run__projects_memory_to_output_when_graph_returns(
     # prepare
     graph = graph_from(LINEAR_GRAPH)
     context = RunContext(
-        handlers={"tool.local": echo_handler({"value": "seeded"})},
+        handlers={"tool": echo_handler({"value": "seeded"})},
     )
 
     # act
@@ -535,18 +550,19 @@ async def test_run__takes_the_first_matching_edge_when_several_are_guarded(
         entry: classify
         nodes:
           - id: classify
-            type: tool.local
+            type: tool
+            resource: store
             call: fixed
-            out: { type: object, properties: { route: { type: string } } }
           - id: draft
-            type: tool.local
+            type: tool
+            resource: store
             call: fixed
         edges:
           - { from: classify, to: draft, when: $.classify.route == "reply" }
           - { from: classify, to: end, when: true }
           - { from: draft, to: end }
         """)
-    context = RunContext(handlers={"tool.local": echo_handler({"route": "reply"})})
+    context = RunContext(handlers={"tool": echo_handler({"route": "reply"})})
 
     # act
     result = await run(graph, {}, context)
@@ -564,17 +580,19 @@ async def test_run__falls_through_to_the_unguarded_edge_when_no_guard_matches(
         entry: classify
         nodes:
           - id: classify
-            type: tool.local
+            type: tool
+            resource: store
             call: fixed
           - id: draft
-            type: tool.local
+            type: tool
+            resource: store
             call: fixed
         edges:
           - { from: classify, to: draft, when: $.classify.route == "reply" }
           - { from: classify, to: end, when: true }
           - { from: draft, to: end }
         """)
-    context = RunContext(handlers={"tool.local": echo_handler({"route": "flag"})})
+    context = RunContext(handlers={"tool": echo_handler({"route": "flag"})})
 
     # act
     result = await run(graph, {}, context)
@@ -586,13 +604,26 @@ async def test_run__falls_through_to_the_unguarded_edge_when_no_guard_matches(
 async def test_run__raises_run_error_naming_the_node_when_output_breaks_its_schema(
     graph_from: GraphFactory,
 ) -> None:
-    # prepare
-    graph = graph_from(LINEAR_GRAPH)
-    context = RunContext(handlers={"tool.local": echo_handler({"value": 7})})
+    # prepare — only llm nodes declare out:; a tool node's schema comes from its tool
+    graph = graph_from("""
+        skill: checked
+        entry: first
+        nodes:
+          - id: first
+            type: llm
+            prompt: anything
+            out:
+              type: object
+              properties: { value: { type: string } }
+              required: [value]
+        edges:
+          - { from: first, to: end }
+        """)
+    context = RunContext(handlers={"llm": echo_handler({"value": 7})})
 
     # act / verify
     with pytest.raises(RunError) as caught:
-        await run(graph, {"seed": "x"}, context)
+        await run(graph, {}, context)
     assert caught.value.node_id == "first"
 
 
@@ -601,7 +632,7 @@ async def test_run__raises_run_error_when_graph_input_breaks_its_schema(
 ) -> None:
     # prepare
     graph = graph_from(LINEAR_GRAPH)
-    context = RunContext(handlers={"tool.local": echo_handler({"value": "x"})})
+    context = RunContext(handlers={"tool": echo_handler({"value": "x"})})
 
     # act / verify
     with pytest.raises(RunError, match="graph input"):
@@ -616,11 +647,11 @@ async def test_run__raises_run_error_when_a_node_loops_past_max_steps(
         skill: looping
         entry: spin
         nodes:
-          - { id: spin, type: tool.local, call: fixed }
+          - { id: spin, type: tool, resource: store, call: fixed }
         edges:
           - { from: spin, to: spin }
         """)
-    context = RunContext(handlers={"tool.local": echo_handler({})}, max_steps=3)
+    context = RunContext(handlers={"tool": echo_handler({})}, max_steps=3)
 
     # act / verify
     with pytest.raises(RunError, match="exceeded 3 steps"):
@@ -635,12 +666,12 @@ async def test_run__records_every_edge_with_its_evaluated_inputs(
         skill: routing
         entry: classify
         nodes:
-          - { id: classify, type: tool.local, call: fixed }
+          - { id: classify, type: tool, resource: store, call: fixed }
         edges:
           - { from: classify, to: end, when: $.classify.route == "reply" }
           - { from: classify, to: end, when: true }
         """)
-    context = RunContext(handlers={"tool.local": echo_handler({"route": "flag"})})
+    context = RunContext(handlers={"tool": echo_handler({"route": "flag"})})
 
     # act
     result = await run(graph, {}, context)
@@ -652,72 +683,59 @@ async def test_run__records_every_edge_with_its_evaluated_inputs(
     ]
 
 
-async def test_run__records_resources_by_name_when_a_node_uses_a_slot(
+RESOURCE_GRAPH = """
+skill: resourced
+resources: { inbox: test/fixture@1/mailbox }
+entry: fetch
+nodes:
+  - { id: fetch, type: tool, resource: inbox, call: get_message, args: { id: "1" } }
+edges:
+  - { from: fetch, to: end }
+"""
+
+
+async def test_run__records_resources_by_name_when_a_node_uses_one(
     graph_from: GraphFactory,
 ) -> None:
     # prepare
-    graph = graph_from("""
-        skill: slotted
-        requires: { inbox: mailbox@1 }
-        entry: fetch
-        nodes:
-          - { id: fetch, type: tool.api, uses: inbox, call: get_message, args: { id: "1" } }
-        edges:
-          - { from: fetch, to: end }
-        """)
+    graph = graph_from(RESOURCE_GRAPH)
 
     async def handler(call: NodeCall) -> NodeResult:
         config = call.node.config
-        assert isinstance(config, ApiConfig)
-        return NodeResult(output={}, resources=(config.uses,))
+        assert isinstance(config, ToolConfig)
+        return NodeResult(output={}, resources=(config.resource,))
 
-    context = RunContext(handlers={"tool.api": handler})
+    context = RunContext(handlers={"tool": handler})
 
     # act
-    result = await run(graph, {}, context, {"inbox": FakeMailbox({})})
+    result = await run(graph, {}, context, {"inbox": instance()})
 
-    # verify
+    # verify — the name, never the instance or its handle
     assert result.record.nodes[0].resources == ("inbox",)
 
 
-async def test_run__raises_run_error_when_a_declared_slot_is_unbound(
+async def test_run__raises_run_error_when_a_declared_resource_is_unbound(
     graph_from: GraphFactory,
 ) -> None:
     # prepare
-    graph = graph_from("""
-        skill: slotted
-        requires: { inbox: mailbox@1 }
-        entry: fetch
-        nodes:
-          - { id: fetch, type: tool.api, uses: inbox, call: get_message }
-        edges:
-          - { from: fetch, to: end }
-        """)
-    context = RunContext(handlers={"tool.api": echo_handler({})})
+    graph = graph_from(RESOURCE_GRAPH)
+    context = RunContext(handlers={"tool": echo_handler({})})
 
     # act / verify
     with pytest.raises(RunError, match="unbound"):
         await run(graph, {}, context)
 
 
-async def test_run__raises_run_error_when_a_binding_implements_another_interface(
+async def test_run__raises_run_error_when_an_instance_is_of_another_type(
     graph_from: GraphFactory,
 ) -> None:
     # prepare
-    graph = graph_from("""
-        skill: slotted
-        requires: { inbox: calendar@1 }
-        entry: fetch
-        nodes:
-          - { id: fetch, type: tool.api, uses: inbox, call: get_message }
-        edges:
-          - { from: fetch, to: end }
-        """)
-    context = RunContext(handlers={"tool.api": echo_handler({})})
+    graph = graph_from(RESOURCE_GRAPH)
+    context = RunContext(handlers={"tool": echo_handler({})})
 
     # act / verify
-    with pytest.raises(RunError, match="calendar@1"):
-        await run(graph, {}, context, {"inbox": FakeMailbox({})})
+    with pytest.raises(RunError, match="test/fixture@1/calendar"):
+        await run(graph, {}, context, {"inbox": instance(type_ref="test/fixture@1/calendar")})
 
 
 async def test_run__records_the_stub_set_shape_when_a_node_runs_twice(
@@ -728,13 +746,13 @@ async def test_run__records_the_stub_set_shape_when_a_node_runs_twice(
         skill: twice
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: fixed }
-          - { id: b, type: tool.local, call: fixed }
+          - { id: a, type: tool, resource: store, call: fixed }
+          - { id: b, type: tool, resource: store, call: fixed }
         edges:
           - { from: a, to: b }
           - { from: b, to: end }
         """)
-    context = RunContext(handlers={"tool.local": echo_handler({"n": 1})})
+    context = RunContext(handlers={"tool": echo_handler({"n": 1})})
 
     # act
     result = await run(graph, {}, context)
@@ -779,6 +797,93 @@ async def test_llm_handler__constrains_decoding_to_the_out_schema(
     assert model.prompts == ["Subject: hello"]
     assert model.options[0] is not None
     assert model.options[0].json_schema == graph.nodes[0].out
+
+
+THINKING_GRAPH = """
+skill: thinking
+entry: answer
+input: { type: object, properties: { deep: { type: boolean } } }
+nodes:
+  - id: answer
+    type: llm
+    prompt: "go"
+    think: THINK
+    out:
+      type: object
+      properties: { text: { type: string } }
+      required: [text]
+edges:
+  - { from: answer, to: end }
+return: { text: $.answer.text }
+"""
+
+
+async def test_llm_handler__does_not_think_when_the_node_says_nothing(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — reasoning costs tokens and latency, so it is opt-in
+    graph = graph_from(THINKING_GRAPH.replace("    think: THINK\n", ""))
+    model = ScriptedModel(['{"text": "hi"}'])
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": model})
+
+    # act
+    await run(graph, {}, context)
+
+    # verify
+    assert model.options[0] is not None
+    assert model.options[0].think is False
+
+
+async def test_llm_handler__thinks_when_the_node_asks_for_it(graph_from: GraphFactory) -> None:
+    # prepare
+    graph = graph_from(THINKING_GRAPH.replace("THINK", "true"))
+    model = ScriptedModel(['{"text": "hi"}'])
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": model})
+
+    # act
+    await run(graph, {}, context)
+
+    # verify
+    assert model.options[0] is not None
+    assert model.options[0].think is True
+
+
+async def test_llm_handler__takes_think_from_a_path_when_the_graph_decides_it(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — an earlier node, or the run input, chooses how hard to think
+    graph = graph_from(THINKING_GRAPH.replace("THINK", "$.input.deep"))
+    model = ScriptedModel(['{"text": "hi"}'])
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": model})
+
+    # act
+    await run(graph, {"deep": True}, context)
+
+    # verify
+    assert model.options[0] is not None
+    assert model.options[0].think is True
+
+
+async def test_llm_handler__raises_run_error_when_think_resolves_to_a_non_boolean(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — declared as a string, so the schema lets it through to the handler
+    source = THINKING_GRAPH.replace("THINK", "$.input.deep").replace(
+        "{ deep: { type: boolean } }", "{ deep: { type: string } }"
+    )
+    graph = graph_from(source)
+    model = ScriptedModel(['{"text": "hi"}'])
+    context = RunContext(handlers={"llm": llm_handler}, models={"default": model})
+
+    # act / verify
+    with pytest.raises(RunError, match="not a boolean"):
+        await run(graph, {"deep": "yes"}, context)
+
+
+def test_parse_graph__raises_graph_error_when_think_is_not_a_boolean_or_path() -> None:
+    # act / verify
+    with pytest.raises(GraphError, match="think:"):
+        parse_graph(yaml.safe_load(THINKING_GRAPH.replace("THINK", "sometimes")))
 
 
 async def test_llm_handler__records_usage_and_model_when_the_call_succeeds(
@@ -863,9 +968,9 @@ input:
     subject: { type: string }
 nodes:
   - id: work
-    type: tool.local
+    type: tool
+    resource: store
     call: fixed
-    out: { type: object, properties: { note: { type: string } } }
 edges:
   - { from: work, to: end }
 return:
@@ -891,7 +996,7 @@ async def test_skill_run__lands_the_child_output_at_the_node_id(
         return: { note: $.gather.note }
         """)
     context = RunContext(
-        handlers={"skill.run": skill_run_handler, "tool.local": echo_handler({"note": "seen"})},
+        handlers={"skill.run": skill_run_handler, "tool": echo_handler({"note": "seen"})},
         skills=resolve_skill_path(tmp_path),
     )
 
@@ -917,14 +1022,14 @@ async def test_skill_run__hangs_the_child_record_off_the_parent_entry(
               skill: inline
               entry: work
               nodes:
-                - { id: work, type: tool.local, call: fixed }
+                - { id: work, type: tool, resource: store, call: fixed }
               edges:
                 - { from: work, to: end }
         edges:
           - { from: gather, to: end }
         """)
     context = RunContext(
-        handlers={"skill.run": skill_run_handler, "tool.local": echo_handler({"note": "seen"})},
+        handlers={"skill.run": skill_run_handler, "tool": echo_handler({"note": "seen"})},
     )
 
     # act
@@ -944,7 +1049,7 @@ async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
         skill: parent
         entry: seed
         nodes:
-          - { id: seed, type: tool.local, call: fixed }
+          - { id: seed, type: tool, resource: store, call: fixed }
           - id: gather
             type: skill.run
             input: {}
@@ -952,7 +1057,7 @@ async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
               skill: inline
               entry: work
               nodes:
-                - { id: work, type: tool.local, call: peek, args: { seen: $.seed.note } }
+                - { id: work, type: tool, resource: store, call: peek, args: { seen: $.seed.note } }
               edges:
                 - { from: work, to: end }
         edges:
@@ -962,58 +1067,196 @@ async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
 
     async def peek(call: NodeCall) -> NodeResult:
         config = call.node.config
-        assert isinstance(config, LocalConfig)
+        assert isinstance(config, ToolConfig)
         return NodeResult(output=call.memory.resolve_value(config.args))
 
-    context = RunContext(handlers={"skill.run": skill_run_handler, "tool.local": peek})
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": peek})
 
     # act / verify
     with pytest.raises(RunError, match="names nothing"):
         await run(parent, {}, context)
 
 
-async def test_skill_run__passes_a_slot_down_when_the_node_maps_resources(
+async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_resources(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — the child names it ``box``, the parent ``inbox``; no path is involved
+    parent = graph_from("""
+        skill: parent
+        resources: { inbox: test/fixture@1/mailbox }
+        entry: gather
+        nodes:
+          - id: gather
+            type: skill.run
+            resources: { box: inbox }
+            input: {}
+            graph:
+              skill: inline
+              resources: { box: test/fixture@1/mailbox }
+              entry: work
+              nodes:
+                - { id: work, type: tool, resource: box, call: get_message, args: { id: "1" } }
+              edges:
+                - { from: work, to: end }
+              return: { instance: $.work.instance }
+        edges:
+          - { from: gather, to: end }
+        return: { instance: $.gather.instance }
+        """)
+    bound = instance()
+
+    async def tool(call: NodeCall) -> NodeResult:
+        config = call.node.config
+        assert isinstance(config, ToolConfig)
+        handle = call.memory.resources.get(config.resource)
+        assert handle is not None
+        return NodeResult(output={"instance": handle.name})
+
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": tool})
+
+    # act
+    result = await run(parent, {}, context, {"inbox": bound})
+
+    # verify
+    assert result.output == {"instance": "fake-inbox"}
+
+
+async def test_skill_run__raises_run_error_when_a_mapped_resource_is_not_declared(
     graph_from: GraphFactory,
 ) -> None:
     # prepare
     parent = graph_from("""
         skill: parent
-        requires: { inbox: mailbox@1 }
         entry: gather
         nodes:
           - id: gather
             type: skill.run
-            resources: { box: $.inbox }
-            input: {}
+            resources: { box: inbox }
             graph:
               skill: inline
-              requires: { box: mailbox@1 }
               entry: work
               nodes:
-                - { id: work, type: tool.api, uses: box, call: get_message, args: { id: "1" } }
+                - { id: work, type: tool, resource: box, call: get_message }
               edges:
                 - { from: work, to: end }
-              return: { subject: $.work.subject }
         edges:
           - { from: gather, to: end }
-        return: { subject: $.gather.subject }
         """)
-    mailbox = FakeMailbox({"1": {"subject": "hi"}})
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_handler({})})
 
-    async def api(call: NodeCall) -> NodeResult:
-        config = call.node.config
-        assert isinstance(config, ApiConfig)
-        handle: Resource | None = call.memory.resources.get(config.uses)
-        assert handle is not None
-        return NodeResult(output=handle.call(config.call, call.memory.resolve_mapping(config.args)))
+    # act / verify
+    with pytest.raises(RunError, match="does not declare"):
+        await run(parent, {}, context)
 
-    context = RunContext(handlers={"skill.run": skill_run_handler, "tool.api": api})
+
+MAP_PARENT = """
+skill: parent
+entry: fan
+nodes:
+  - id: fan
+    type: skill.run
+    for_each: $.input.subjects
+    input: { subject: $.each }
+    graph:
+      skill: child
+      entry: work
+      input:
+        type: object
+        properties:
+          subject: { type: string }
+      nodes:
+        - id: work
+          type: tool
+          resource: store
+          call: echo
+          args: { subject: $.input.subject }
+      edges:
+        - { from: work, to: end }
+      return: { subject: $.work.subject }
+edges:
+  - { from: fan, to: end }
+return: { subjects: $.fan }
+"""
+
+
+async def echo_args(call: NodeCall) -> NodeResult:
+    """A tool.local that hands back whatever args it was given."""
+    config = call.node.config
+    assert isinstance(config, ToolConfig)
+    return NodeResult(output=call.memory.resolve_mapping(config.args))
+
+
+async def test_skill_run__runs_one_child_per_item_when_for_each_is_set(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from(MAP_PARENT)
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
 
     # act
-    result = await run(parent, {}, context, {"inbox": mailbox})
+    result = await run(parent, {"subjects": ["one", "two", "three"]}, context)
+
+    # verify — the node's output is the list of child outputs, in order
+    assert result.output == {
+        "subjects": [{"subject": "one"}, {"subject": "two"}, {"subject": "three"}]
+    }
+
+
+async def test_skill_run__keeps_one_child_record_per_item_when_mapping(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from(MAP_PARENT)
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
+
+    # act
+    result = await run(parent, {"subjects": ["one", "two"]}, context)
 
     # verify
-    assert result.output == {"subject": "hi"}
+    entry = result.record.nodes[0]
+    assert entry.child is None
+    assert [record.skill for record in entry.children] == ["child", "child"]
+
+
+async def test_skill_run__runs_nothing_when_the_mapped_list_is_empty(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from(MAP_PARENT)
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
+
+    # act
+    result = await run(parent, {"subjects": []}, context)
+
+    # verify
+    assert result.output == {"subjects": []}
+    assert result.record.nodes[0].children == []
+
+
+async def test_skill_run__raises_run_error_when_for_each_does_not_name_a_list(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from(MAP_PARENT)
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
+
+    # act / verify
+    with pytest.raises(RunError, match="does not name a list"):
+        await run(parent, {"subjects": "one"}, context)
+
+
+async def test_skill_run__does_not_leak_each_into_the_parent_memory(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    parent = graph_from(MAP_PARENT)
+    context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
+
+    # act
+    result = await run(parent, {"subjects": ["one"]}, context)
+
+    # verify
+    assert "each" not in result.memory.snapshot()
 
 
 # endregion

@@ -1,0 +1,91 @@
+# LILA install config. Copy to .lila/config.toml and edit.
+#
+# An install is a `.lila/` directory — config, plus the extensions installed into it:
+#
+#   .lila/
+#     config.toml
+#     extensions/lila-email/lila.toml
+#     extensions/lila-email/resources/imap.py
+#     extensions/lila-email/skills/digest.yaml
+#
+# An extension is the unit of distribution: a resource type, its tools, and the skills
+# built on them, versioned as one. Installing one is a `git clone` into
+# `.lila/extensions/`; the resolver searches there first, then the extensions that ship
+# with the harness.
+#
+# Commands find the install by walking up from the working directory, so they work from
+# anywhere in the tree; $LILA_HOME or --home overrides. A skill can then be named by ref
+# rather than pathed:
+#
+#   lila call gmail-personal.list_messages --arg unread=true
+#   lila run test/email@1/digest
+#
+# A skill file is portable: it names a model alias and its own name for each resource it
+# needs, never an endpoint, a credential, or a folder on your disk. This file is the
+# local half — it says what those names point at here. Nothing in it reaches a prompt or
+# the run record.
+
+
+# --- models -------------------------------------------------------------------------
+# A graph says `model: default` (or omits it, which means the same). The alias is bound
+# here, so moving a skill to another machine cannot drag a model choice along with it.
+#
+#   model           the backend's own id, e.g. what `ollama list` shows
+#   backend         only "ollama" today; the seam for the bundled runtime later
+#   host            where that backend listens
+#   context_length  tokens of context to allocate
+#
+# context_length is set here, not in a skill, because it is a property of the machine
+# and the model rather than of the workflow — a skill that demanded 32k would break on a
+# smaller box. SET IT: ollama defaults to 2048 and truncates silently past that, which
+# looks like a model that cannot read rather than a prompt that was cut off.
+#
+# Sizing it: `ollama show <model>` gives the model's own maximum (qwen3.5:9b: 262144),
+# but the real limit is memory. The KV cache is allocated up front, so on a 16 GB
+# machine qwen3.5:9b measures 5.6 GB resident at 8192 and 6.5 GB at 32768 — roughly
+# 0.9 GB per extra 32k. 32768 leaves ~25k tokens of usable prompt, which is far below
+# where a long-context model degrades and comfortably fits a large HTML e-mail.
+# Prefill cost grows with prompt length too, so headroom you rarely use is free but
+# a prompt that actually fills it is not.
+
+[models.default]
+model = "qwen3.5:9b"
+host = "http://localhost:11434"
+context_length = 32768
+
+
+# --- resources ----------------------------------------------------------------------
+# One configured instance. `type` is a resource type an installed extension defines,
+# written `publisher/extension@version/member`; the extension's own dataclass decides
+# which other keys are meaningful, and an unknown or missing one fails at load.
+#
+# Secrets are NOT written here. `secrets` maps a setting to the environment variable
+# holding its value, read when the resource is built. That keeps this file safe to read
+# and to copy around, and it is the seam that a keychain or an encrypted store replaces
+# later without touching any extension.
+#
+# test/email@1/imap settings: host, username, folder (default "INBOX"),
+#                             port (default 993), password (via secrets)
+#
+# Gmail: turn on 2FA, create an app password at myaccount.google.com/apppasswords, and
+# enable IMAP in Gmail → Settings → Forwarding and POP/IMAP. Labels are folders here.
+
+[resources.gmail-personal]
+type = "test/email@1/imap"
+host = "imap.gmail.com"
+username = "you@gmail.com"
+folder = "INBOX"
+secrets = { password = "LILA_INBOX_PASSWORD" }
+
+
+# --- skills -------------------------------------------------------------------------
+# A skill declares the resources it needs (`resources: inbox: test/email@1/imap`) and
+# refuses to run until each is bound. This is where the skill's own name for a resource
+# meets an instance: name on the left, a [resources] name on the right. Two skills can
+# bind the same name to different mailboxes, and one skill can declare two of a type —
+# read from `inbox`, file into `archive`.
+#
+# The section is keyed by the skill's own `skill:` field, not its filename.
+
+[skills.email-digest.bindings]
+inbox = "gmail-personal"

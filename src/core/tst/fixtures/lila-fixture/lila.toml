@@ -1,0 +1,6 @@
+# The suite's own extension. A checkout must be able to run the tests, so they never
+# read the real one out of .lila/ — and a fake resource exercises the loader with no
+# network.
+name = "test/fixture"
+version = 1
+requires = []

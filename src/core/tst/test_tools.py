@@ -1,90 +1,66 @@
-"""Unit tests for lila.tools. No network — the IMAP client is faked at its boundary."""
+"""Unit tests for lila.tools — the one tool handler, over the fixture extension.
+
+No network: the tests load ``tst/fixtures/lila-fixture``, which is a real extension
+loaded by the real loader, so the handler is exercised end to end without a provider.
+"""
 
 from __future__ import annotations
 
-import email.message
 from collections.abc import Callable
+from pathlib import Path as FilePath
 
 import pytest
 import yaml
 
 from lila.executor import Graph, RunContext, RunError, parse_graph, run
-from lila.resources import (
-    ArgName,
-    BindingName,
-    CallName,
-    InterfaceName,
-    ResourceError,
-    ResourceRegistry,
-)
-from lila.tools import ImapMailbox, default_handlers
-from lila.values import Json
+from lila.extensions import load
+from lila.resources import Instance, Registry
+from lila.tools import default_handlers
 
 # region fixtures
 
-GraphFactory = Callable[..., Graph]
+GraphFactory = Callable[[str], Graph]
+FIXTURES = FilePath(__file__).parent / "fixtures"
 
+FETCH_GRAPH = """
+skill: fetching
+resources: { inbox: test/fixture@1/mailbox }
+entry: fetch
+input:
+  type: object
+  properties:
+    message_id: { type: string }
+nodes:
+  - id: fetch
+    type: tool
+    resource: inbox
+    call: get_message
+    args: { id: $.input.message_id }
+edges:
+  - { from: fetch, to: end }
+return:
+  subject: $.fetch.subject
+"""
 
-class FakeImap:
-    """Stands in for imaplib.IMAP4_SSL, recording the commands it was given."""
-
-    def __init__(self, message: bytes = b"") -> None:
-        self.message = message
-        self.commands: list[tuple[str, ...]] = []
-        self.logged_out = False
-
-    def login(self, username: str, password: str) -> None:
-        self.commands.append(("login", username, password))
-
-    def select(self, folder: str, readonly: bool = False) -> tuple[str, list[bytes]]:
-        self.commands.append(("select", folder, str(readonly)))
-        return "OK", [b"1"]
-
-    def search(self, charset: str | None, criteria: str) -> tuple[str, list[bytes]]:
-        self.commands.append(("search", criteria))
-        return "OK", [b"1 2 3"]
-
-    def fetch(self, message_id: str, parts: str) -> tuple[str, list[tuple[bytes, bytes]]]:
-        self.commands.append(("fetch", message_id, parts))
-        return "OK", [(b"1 (RFC822 {1})", self.message)]
-
-    def copy(self, message_id: str, folder: str) -> tuple[str, list[bytes]]:
-        self.commands.append(("copy", message_id, folder))
-        return "OK", [b""]
-
-    def store(self, message_id: str, command: str, flags: str) -> tuple[str, list[bytes]]:
-        self.commands.append(("store", message_id, command, flags))
-        return "OK", [b""]
-
-    def expunge(self) -> tuple[str, list[bytes]]:
-        self.commands.append(("expunge",))
-        return "OK", [b""]
-
-    def logout(self) -> tuple[str, list[bytes]]:
-        self.logged_out = True
-        return "BYE", [b""]
-
-
-class FakeMailbox:
-    """A mailbox@1 answering from a dict."""
-
-    def __init__(self, messages: dict[str, dict[str, Json]]) -> None:
-        self.messages = messages
-        self.calls: list[tuple[CallName, dict[ArgName, Json]]] = []
-
-    @property
-    def name(self) -> BindingName:
-        return "fake-inbox"
-
-    @property
-    def interface(self) -> InterfaceName:
-        return "mailbox@1"
-
-    def call(self, operation: CallName, args: dict[ArgName, Json]) -> dict[str, Json]:
-        self.calls.append((operation, args))
-        if operation != "get_message":
-            raise ResourceError(f"no operation {operation!r}")
-        return self.messages[str(args["id"])]
+JOIN_GRAPH = """
+skill: joining
+resources: { text: test/fixture@1/text }
+entry: joined
+input:
+  type: object
+  properties:
+    items: { type: array, items: { type: string } }
+nodes:
+  - id: joined
+    type: tool
+    resource: text
+    call: join
+    args: { items: $.input.items, sep: "-" }
+edges:
+  - { from: joined, to: end }
+return:
+  text: $.joined
+"""
 
 
 @pytest.fixture
@@ -96,270 +72,169 @@ def graph_from() -> GraphFactory:
 
 
 @pytest.fixture
-def mailbox_with(monkeypatch: pytest.MonkeyPatch) -> Callable[..., tuple[ImapMailbox, FakeImap]]:
-    """Build a mailbox whose IMAP connection is a FakeImap."""
-
-    def build(message: bytes = b"") -> tuple[ImapMailbox, FakeImap]:
-        fake = FakeImap(message)
-        mailbox = ImapMailbox(
-            "test-inbox", host="imap.example.com", username="me", password="secret"
+def registry() -> Registry:
+    """The fixture extension, loaded, with one instance of each of its resource types."""
+    loaded = load(FIXTURES)
+    mailbox = loaded.types["test/fixture@1/mailbox"]
+    text = loaded.types["test/fixture@1/text"]
+    loaded.register(
+        Instance(
+            name="fake-inbox",
+            type="test/fixture@1/mailbox",
+            handle=mailbox(host="mail.example.com", token="secret"),
         )
-        monkeypatch.setattr(mailbox, "_connect", lambda: fake)
-        return mailbox, fake
-
-    return build
-
-
-def plain_message(sender: str, subject: str, body: str) -> bytes:
-    message = email.message.EmailMessage()
-    message["From"] = sender
-    message["Subject"] = subject
-    message.set_content(body)
-    return message.as_bytes()
+    )
+    loaded.register(Instance(name="strings", type="test/fixture@1/text", handle=text()))
+    return loaded
 
 
-FETCH_GRAPH = """
-skill: fetching
-requires: { inbox: mailbox@1 }
-entry: fetch
-input:
-  type: object
-  properties:
-    message_id: { type: string }
-nodes:
-  - id: fetch
-    type: tool.api
-    uses: inbox
-    call: get_message
-    args: { id: $.input.message_id }
-    out:
-      type: object
-      properties:
-        subject: { type: string }
-      required: [subject]
-edges:
-  - { from: fetch, to: end }
-return:
-  subject: $.fetch.subject
-"""
+@pytest.fixture
+def context(registry: Registry) -> RunContext:
+    return RunContext(handlers=default_handlers(), registry=registry)
+
+
+def bound(registry: Registry, name: str, instance: str) -> dict[str, Instance]:
+    """One resource name bound to one configured instance."""
+    return {name: registry.instance(instance)}
+
 
 # endregion
 
-# region api_handler
+# region tool_handler
 
 
-async def test_api_handler__calls_the_bound_slot_with_rendered_args(
-    graph_from: GraphFactory,
+async def test_tool_handler__calls_the_tool_with_rendered_args(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
 ) -> None:
     # prepare
-    mailbox = FakeMailbox({"7": {"subject": "hello"}})
-    context = RunContext(handlers=default_handlers())
+    graph = graph_from(FETCH_GRAPH)
 
     # act
-    result = await run(graph_from(FETCH_GRAPH), {"message_id": "7"}, context, {"inbox": mailbox})
+    result = await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
 
     # verify
-    assert mailbox.calls == [("get_message", {"id": "7"})]
-    assert result.output == {"subject": "hello"}
+    assert result.output == {"subject": "subject 7"}
 
 
-async def test_api_handler__records_the_slot_name_not_the_handle(
-    graph_from: GraphFactory,
+async def test_tool_handler__records_the_resource_name_not_the_handle(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
 ) -> None:
     # prepare
-    mailbox = FakeMailbox({"7": {"subject": "hello"}})
-    context = RunContext(handlers=default_handlers())
+    graph = graph_from(FETCH_GRAPH)
 
     # act
-    result = await run(graph_from(FETCH_GRAPH), {"message_id": "7"}, context, {"inbox": mailbox})
+    result = await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
 
     # verify
     assert result.record.nodes[0].resources == ("inbox",)
     assert result.record.nodes[0].inputs == {"id": "7"}
 
 
-async def test_api_handler__raises_run_error_naming_the_node_when_the_call_fails(
-    graph_from: GraphFactory,
+async def test_tool_handler__validates_the_result_against_the_tools_own_schema(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
+) -> None:
+    # prepare — the graph declares no out:; the tool's return annotation is the schema
+    graph = graph_from(FETCH_GRAPH)
+
+    # act
+    result = await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
+
+    # verify
+    assert result.memory.history("fetch") == [{"id": "7", "subject": "subject 7"}]
+
+
+async def test_tool_handler__raises_run_error_naming_the_node_when_the_tool_fails(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
 ) -> None:
     # prepare
-    graph = graph_from(FETCH_GRAPH.replace("call: get_message", "call: burn_inbox"))
-    context = RunContext(handlers=default_handlers())
+    graph = graph_from(FETCH_GRAPH)
 
     # act / verify
-    with pytest.raises(RunError) as caught:
-        await run(graph, {"message_id": "7"}, context, {"inbox": FakeMailbox({})})
+    with pytest.raises(RunError, match="not found") as caught:
+        await run(graph, {"message_id": "missing"}, context, bound(registry, "inbox", "fake-inbox"))
     assert caught.value.node_id == "fetch"
 
 
-# endregion
-
-# region local_handler
-
-
-async def test_local_handler__calls_the_registered_callable_with_rendered_args(
-    graph_from: GraphFactory,
+async def test_tool_handler__raises_run_error_when_the_type_has_no_such_tool(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
 ) -> None:
     # prepare
-    graph = graph_from("""
-        skill: transforming
-        entry: shout
-        input: { type: object, properties: { text: { type: string } } }
-        nodes:
-          - id: shout
-            type: tool.local
-            call: upper
-            args: { text: $.input.text }
-            out: { type: object, properties: { text: { type: string } } }
-        edges:
-          - { from: shout, to: end }
-        return: { text: $.shout.text }
-        """)
-    context = RunContext(
-        handlers=default_handlers(),
-        locals={"upper": lambda args: {"text": str(args["text"]).upper()}},
+    graph = graph_from(FETCH_GRAPH.replace("call: get_message", "call: burn_inbox"))
+
+    # act / verify
+    with pytest.raises(RunError, match="no tool 'burn_inbox'") as caught:
+        await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
+    assert caught.value.node_id == "fetch"
+
+
+async def test_tool_handler__raises_run_error_when_args_do_not_fit_the_tool_schema(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
+) -> None:
+    # prepare — list_messages takes an integer limit
+    graph = graph_from(
+        FETCH_GRAPH.replace("call: get_message", "call: list_messages").replace(
+            "args: { id: $.input.message_id }", "args: { limit: $.input.message_id }"
+        )
     )
 
-    # act
-    result = await run(graph, {"text": "hi"}, context)
-
-    # verify
-    assert result.output == {"text": "HI"}
+    # act / verify
+    with pytest.raises(RunError, match="args failed list_messages schema"):
+        await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
 
 
-async def test_local_handler__raises_run_error_when_the_callable_is_not_registered(
-    graph_from: GraphFactory,
+async def test_tool_handler__raises_run_error_when_the_resource_is_not_bound(
+    graph_from: GraphFactory, context: RunContext
 ) -> None:
     # prepare
-    graph = graph_from("""
-        skill: transforming
-        entry: shout
-        nodes:
-          - { id: shout, type: tool.local, call: upper }
-        edges:
-          - { from: shout, to: end }
-        """)
+    graph = graph_from(FETCH_GRAPH)
 
     # act / verify
-    with pytest.raises(RunError, match="no local callable"):
-        await run(graph, {}, RunContext(handlers=default_handlers()))
+    with pytest.raises(RunError, match="unbound"):
+        await run(graph, {"message_id": "7"}, context, {})
+
+
+async def test_tool_handler__runs_a_tool_on_a_stateless_resource(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
+) -> None:
+    # prepare — a resource with no fields is how a transform reaches a graph
+    graph = graph_from(JOIN_GRAPH)
+
+    # act
+    result = await run(
+        graph, {"items": ["a", "b", "c"]}, context, bound(registry, "text", "strings")
+    )
+
+    # verify
+    assert result.output == {"text": "a-b-c"}
+
+
+async def test_tool_handler__raises_run_error_when_no_registry_is_bound(
+    graph_from: GraphFactory, registry: Registry
+) -> None:
+    # prepare
+    graph = graph_from(FETCH_GRAPH)
+
+    # act / verify
+    with pytest.raises(RunError, match="no registry bound"):
+        await run(
+            graph,
+            {"message_id": "7"},
+            RunContext(handlers=default_handlers()),
+            bound(registry, "inbox", "fake-inbox"),
+        )
 
 
 # endregion
 
-# region ImapMailbox
-
-MailboxFactory = Callable[..., tuple[ImapMailbox, FakeImap]]
+# region default_handlers
 
 
-def test_get_message__returns_headers_and_plain_body(mailbox_with: MailboxFactory) -> None:
-    # prepare
-    mailbox, _ = mailbox_with(plain_message("a@example.com", "one", "body text"))
-
+def test_default_handlers__registers_one_handler_per_node_type() -> None:
     # act
-    message = mailbox.call("get_message", {"id": "1"})
+    handlers = default_handlers()
 
-    # verify
-    assert message == {
-        "id": "1",
-        "from": "a@example.com",
-        "subject": "one",
-        "body": "body text\n",
-    }
-
-
-def test_get_message__selects_the_folder_read_only(mailbox_with: MailboxFactory) -> None:
-    # prepare
-    mailbox, fake = mailbox_with(plain_message("a@example.com", "one", "b"))
-
-    # act
-    mailbox.call("get_message", {"id": "1"})
-
-    # verify
-    assert ("select", '"INBOX"', "True") in fake.commands
-    assert fake.logged_out is True
-
-
-def test_list_messages__returns_the_ids_in_the_folder(mailbox_with: MailboxFactory) -> None:
-    # prepare
-    mailbox, _ = mailbox_with()
-
-    # act
-    listing = mailbox.call("list_messages", {"folder": "INBOX"})
-
-    # verify
-    assert listing == {"ids": ["1", "2", "3"]}
-
-
-def test_move_message__copies_then_deletes_the_original(mailbox_with: MailboxFactory) -> None:
-    # prepare
-    mailbox, fake = mailbox_with()
-
-    # act
-    moved = mailbox.call("move_message", {"id": "1", "folder": "action"})
-
-    # verify
-    assert moved == {"id": "1", "folder": "action"}
-    assert [command[0] for command in fake.commands] == [
-        "select",
-        "copy",
-        "store",
-        "expunge",
-    ]
-
-
-def test_call__raises_resource_error_when_the_operation_is_unknown(
-    mailbox_with: MailboxFactory,
-) -> None:
-    # prepare
-    mailbox, _ = mailbox_with()
-
-    # act / verify
-    with pytest.raises(ResourceError, match="no operation"):
-        mailbox.call("delete_everything", {})
-
-
-def test_interface__is_mailbox_v1(mailbox_with: MailboxFactory) -> None:
-    # prepare
-    mailbox, _ = mailbox_with()
-
-    # act / verify
-    assert mailbox.interface == "mailbox@1"
-
-
-# endregion
-
-# region ResourceRegistry
-
-
-def test_bind__maps_slots_to_instances_when_interfaces_match() -> None:
-    # prepare
-    mailbox = FakeMailbox({})
-    registry = ResourceRegistry()
-    registry.register(mailbox)
-
-    # act
-    bound = registry.bind({"inbox": "mailbox@1"}, {"inbox": "fake-inbox"})
-
-    # verify
-    assert bound == {"inbox": mailbox}
-
-
-def test_bind__raises_resource_error_when_the_interface_differs() -> None:
-    # prepare
-    registry = ResourceRegistry({"fake-inbox": FakeMailbox({})})
-
-    # act / verify
-    with pytest.raises(ResourceError, match="calendar@1"):
-        registry.bind({"inbox": "calendar@1"}, {"inbox": "fake-inbox"})
-
-
-def test_bind__raises_resource_error_when_a_slot_is_unbound() -> None:
-    # prepare
-    registry = ResourceRegistry()
-
-    # act / verify
-    with pytest.raises(ResourceError, match="unbound"):
-        registry.bind({"inbox": "mailbox@1"}, {})
+    # verify — transports are not node types
+    assert sorted(handlers) == ["llm", "skill.run", "tool"]
 
 
 # endregion

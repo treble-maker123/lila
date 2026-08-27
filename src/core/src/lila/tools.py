@@ -1,237 +1,110 @@
-"""``tool.*`` handlers and the first ``mailbox@1`` implementation.
+"""The ``tool`` node handler — the one path every tool call takes.
 
-All transports share one contract — JSON args in, JSON result out, one validation and
-record path — so adding a transport is an adapter, not a branch in the executor.
+Four steps, no per-provider branching: resolve ``resource:`` to the bound instance, look
+up ``call:`` in that resource type's tools, validate args, call and validate the result.
+Transport lives inside the tool's implementation (lila.ext), so an IMAP fetch, an HTTP
+call, and a pure transform all arrive here the same way.
 """
 
 from __future__ import annotations
 
 import asyncio
-import email
-import imaplib
-from email.header import decode_header, make_header
-from email.message import Message as EmailMessage
+import inspect
+from collections.abc import Callable
+
+import jsonschema
 
 from lila.executor import (
-    ApiConfig,
     Handler,
-    LocalConfig,
     NodeCall,
     NodeResult,
     NodeType,
     RunError,
+    ToolConfig,
     llm_handler,
     skill_run_handler,
 )
-from lila.resources import ArgName, BindingName, CallName, InterfaceName, ResourceError
+from lila.ext import ToolError
+from lila.resources import ResourceError
 from lila.values import Json
 
-IMAP_PORT = 993
-MAILBOX_INTERFACE: InterfaceName = "mailbox@1"
 
-
-async def api_handler(call: NodeCall) -> NodeResult:
-    """Resolve ``uses:`` to a handle, render args, call, hand the result to the loop.
+async def tool_handler(call: NodeCall) -> NodeResult:
+    """Run one tool against the instance bound to the node's ``resource:``.
 
     Raises:
-        RunError: the slot is unbound, an args path does not resolve, or the resource
-            call fails.
+        RunError: the resource is unbound, no registry is bound, the tool does not
+            exist, the args do not fit its schema, or the tool itself failed.
     """
     node = call.node
     config = node.config
-    assert isinstance(config, ApiConfig)
-    handle = call.memory.resources.get(config.uses)
-    if handle is None:
-        raise RunError(f"slot {config.uses!r} is not bound", node_id=node.id)
-    args = call.memory.resolve_mapping(config.args)
+    assert isinstance(config, ToolConfig)
+    instance = call.memory.resources.get(config.resource)
+    if instance is None:
+        raise RunError(f"resource {config.resource!r} is not bound", node_id=node.id)
+    if call.context.registry is None:
+        raise RunError("no registry bound; nothing defines tools", node_id=node.id)
     try:
-        # The transport is blocking, so it runs off the event loop.
-        output = await asyncio.to_thread(handle.call, config.call, args)
+        tool = call.context.registry.tool(instance.type, config.call)
     except ResourceError as exc:
         raise RunError(str(exc), node_id=node.id) from exc
-    return NodeResult(output=output, inputs=args, resources=(config.uses,))
+
+    args = call.memory.resolve_mapping(config.args)
+    try:
+        jsonschema.validate(args, tool.args)
+    except jsonschema.ValidationError as exc:
+        raise RunError(f"args failed {config.call} schema: {exc.message}", node_id=node.id) from exc
+
+    returned = await _invoke(tool.run, instance.handle, args, node.id)
+    output = _as_json(returned, config.call, node.id)
+    if tool.result is not None:
+        try:
+            jsonschema.validate(output, tool.result)
+        except jsonschema.ValidationError as exc:
+            raise RunError(
+                f"{config.call} returned something its schema rejects: {exc.message}",
+                node_id=node.id,
+            ) from exc
+    return NodeResult(output=output, inputs=args, resources=(config.resource,))
 
 
-async def local_handler(call: NodeCall) -> NodeResult:
-    """In-process callable — the transform escape hatch.
+def _as_json(value: object, call: str, node_id: str) -> Json:
+    """Narrow what a tool returned to JSON — it is third-party, so it is checked.
 
     Raises:
-        RunError: nothing is registered under ``call:``, or an args path does not
-            resolve. Whatever the callable raises propagates as-is.
+        RunError: the value holds something a run could not record.
     """
-    node = call.node
-    config = node.config
-    assert isinstance(config, LocalConfig)
-    callable_ = call.context.locals.get(config.call)
-    if callable_ is None:
-        raise RunError(f"no local callable registered as {config.call!r}", node_id=node.id)
-    args = call.memory.resolve_mapping(config.args)
-    return NodeResult(output=callable_(args), inputs=args)
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_as_json(item, call, node_id) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _as_json(item, call, node_id) for key, item in value.items()}
+    raise RunError(f"{call} returned {type(value).__name__}, which is not JSON", node_id=node_id)
+
+
+async def _invoke(
+    run: Callable[..., object], handle: object, args: dict[str, Json], node_id: str
+) -> object:
+    """Call a tool, off the event loop when it is blocking.
+
+    Raises:
+        RunError: the tool raised.
+    """
+    try:
+        if inspect.iscoroutinefunction(run):
+            return await run(handle, **args)
+        return await asyncio.to_thread(run, handle, **args)
+    except ToolError as exc:
+        raise RunError(str(exc), node_id=node_id) from exc
+    except TypeError as exc:
+        raise RunError(f"cannot call tool: {exc}", node_id=node_id) from exc
 
 
 def default_handlers() -> dict[NodeType, Handler]:
-    """Node type -> handler. T5/T6 register here rather than editing the run loop."""
+    """Node type -> handler. One entry per node type; transports are not node types."""
     return {
         "llm": llm_handler,
-        "tool.api": api_handler,
-        "tool.local": local_handler,
+        "tool": tool_handler,
         "skill.run": skill_run_handler,
     }
-
-
-class ImapMailbox:
-    """``mailbox@1`` over IMAP with an app password.
-
-    IMAP flattens Gmail's model — labels are folders, so a multi-label message does not
-    round-trip and Gmail search syntax is out of reach. The e-mail skill is written to
-    that grain: one folder per message.
-    """
-
-    def __init__(
-        self,
-        name: BindingName,
-        *,
-        host: str,
-        username: str,
-        password: str,
-        port: int = IMAP_PORT,
-        folder: str = "INBOX",
-    ) -> None:
-        """Hold the connection settings; no connection is opened until a call."""
-        self._name = name
-        self._host = host
-        self._port = port
-        self._username = username
-        self._password = password
-        self._folder = folder
-
-    @property
-    def name(self) -> BindingName:
-        """Binding name of this instance."""
-        return self._name
-
-    @property
-    def interface(self) -> InterfaceName:
-        """The interface this resource implements — always ``mailbox@1``."""
-        return MAILBOX_INTERFACE
-
-    def call(self, operation: CallName, args: dict[ArgName, Json]) -> dict[str, Json]:
-        """Dispatch one ``mailbox@1`` operation to its method.
-
-        Raises:
-            ResourceError: unknown operation, or the IMAP call failed.
-            KeyError: a required arg is missing.
-        """
-        match operation:
-            case "list_messages":
-                return self.list_messages(str(args.get("folder", self._folder)))
-            case "get_message":
-                return self.get_message(str(args["id"]))
-            case "move_message":
-                return self.move_message(str(args["id"]), str(args["folder"]))
-            case _:
-                raise ResourceError(f"{MAILBOX_INTERFACE} has no operation {operation!r}")
-
-    def _connect(self) -> imaplib.IMAP4_SSL:
-        """Open a TLS connection and log in.
-
-        Raises:
-            ResourceError: the connection or login failed.
-        """
-        try:
-            client = imaplib.IMAP4_SSL(self._host, self._port)
-            client.login(self._username, self._password)
-        except (imaplib.IMAP4.error, OSError) as exc:
-            raise ResourceError(f"IMAP login to {self._host} failed: {exc}") from exc
-        return client
-
-    def _select(self, client: imaplib.IMAP4_SSL, folder: str, readonly: bool) -> None:
-        """Select a folder on an open connection.
-
-        Raises:
-            ResourceError: the folder cannot be selected.
-        """
-        status, _ = client.select(f'"{folder}"', readonly=readonly)
-        if status != "OK":
-            raise ResourceError(f"cannot select folder {folder!r}")
-
-    def list_messages(self, folder: str) -> dict[str, Json]:
-        """Every message id in a folder.
-
-        Raises:
-            ResourceError: login, folder select, or search failed.
-        """
-        client = self._connect()
-        try:
-            self._select(client, folder, readonly=True)
-            status, data = client.search(None, "ALL")
-            if status != "OK":
-                raise ResourceError(f"search in {folder!r} failed")
-            ids = [uid.decode() for uid in (data[0] or b"").split()]
-        finally:
-            client.logout()
-        return {"ids": ids}
-
-    def get_message(self, message_id: str) -> dict[str, Json]:
-        """Fetch one message as id, from, subject, and plain-text body.
-
-        Raises:
-            ResourceError: login or folder select failed, or the message is not there.
-        """
-        client = self._connect()
-        try:
-            self._select(client, self._folder, readonly=True)
-            status, data = client.fetch(message_id, "(RFC822)")
-            if status != "OK" or not data or not isinstance(data[0], tuple):
-                raise ResourceError(f"message {message_id!r} not found")
-            message = email.message_from_bytes(data[0][1])
-        finally:
-            client.logout()
-        return {
-            "id": message_id,
-            "from": _header(message, "From"),
-            "subject": _header(message, "Subject"),
-            "body": _body(message),
-        }
-
-    def move_message(self, message_id: str, folder: str) -> dict[str, Json]:
-        """Copy a message to another folder and expunge the original.
-
-        Raises:
-            ResourceError: login, folder select, or the copy failed.
-        """
-        client = self._connect()
-        try:
-            self._select(client, self._folder, readonly=False)
-            status, _ = client.copy(message_id, f'"{folder}"')
-            if status != "OK":
-                raise ResourceError(f"cannot copy {message_id!r} to {folder!r}")
-            client.store(message_id, "+FLAGS", "\\Deleted")
-            client.expunge()
-        finally:
-            client.logout()
-        return {"id": message_id, "folder": folder}
-
-
-def _header(message: EmailMessage, name: str) -> str:
-    """One decoded header, or an empty string when absent."""
-    raw = message.get(name)
-    return str(make_header(decode_header(raw))) if raw else ""
-
-
-def _body(message: EmailMessage) -> str:
-    """First text/plain part, falling back to the payload as-is."""
-    if message.is_multipart():
-        for part in message.walk():
-            if part.get_content_type() == "text/plain":
-                return _decode(part)
-        return ""
-    return _decode(message)
-
-
-def _decode(part: EmailMessage) -> str:
-    """Decode one part's payload to text, replacing undecodable bytes."""
-    payload = part.get_payload(decode=True)
-    if isinstance(payload, bytes):
-        return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
-    return str(part.get_payload())

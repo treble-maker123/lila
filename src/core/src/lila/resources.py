@@ -1,93 +1,106 @@
-"""Resources: named, capability-scoped objects injected into a node.
+"""Resource instances and the registry a run resolves names against.
 
-A resource never enters run memory or the record, so credentials cannot reach a prompt.
-A graph declares slots (``inbox: mailbox@1``); an install binds each slot to an instance.
+A resource holds config, credentials, and session lifecycle and has no operations —
+those are tools (lila.ext). An instance never enters run memory or the record, so
+credentials cannot reach a prompt. A graph names a resource (``inbox``); an install
+binds that name to an instance (``gmail-personal``) of a declared type.
 """
 
 from __future__ import annotations
 
-from abc import abstractmethod
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from pathlib import Path as FilePath
 
-from lila.values import Json
+from lila.ext import Tool, ToolName, TypeRef
 
 # region names
 
 # The lower half of the name vocabulary; lila.executor re-exports these with its own.
-type SlotName = str  # a slot a graph declares, e.g. ``inbox``
-type InterfaceName = str  # versioned capability, e.g. ``mailbox@1``
-type BindingName = str  # a registered instance, e.g. ``gmail-personal``
-type CallName = str  # an operation on an interface, e.g. ``list_messages``
+type ResourceName = str  # what a graph calls a resource it needs, e.g. ``inbox``
+type InstanceName = str  # a configured instance, e.g. ``gmail-personal``
 type ArgName = str  # key in a call's args mapping
+type SkillRef = str  # ``publisher/extension@version/member``, or a path
 
 # endregion
 
 
 class ResourceError(RuntimeError):
-    """A resource is missing, mis-typed, or failed a call."""
+    """A resource is missing, mis-typed, or a tool call failed."""
 
 
-@runtime_checkable
-class Resource(Protocol):
-    """A capability contract instance, e.g. some concrete ``mailbox@1``."""
+@dataclass(frozen=True, slots=True)
+class Instance:
+    """One configured resource: the author's handle, plus what the harness calls it."""
 
-    @property
-    @abstractmethod
-    def name(self) -> BindingName:
-        """Binding name of this instance, e.g. ``gmail-personal``."""
-
-    @property
-    @abstractmethod
-    def interface(self) -> InterfaceName:
-        """Versioned interface it implements, e.g. ``mailbox@1``."""
-
-    @abstractmethod
-    def call(self, operation: CallName, args: dict[ArgName, Json]) -> dict[str, Json]:
-        """Invoke one operation. Raises ResourceError when it fails."""
+    name: InstanceName
+    type: TypeRef  # the resource type it was built from
+    handle: object  # the extension's own dataclass instance, passed to its tools
 
 
-class ResourceRegistry:
-    """Binding name -> instance, plus slot binding and typecheck."""
+@dataclass(slots=True)
+class Registry:
+    """What an install knows: resource types, their tools, instances, and skills.
 
-    def __init__(self, instances: dict[BindingName, Resource] | None = None) -> None:
-        """Start from an optional binding name -> instance mapping."""
-        self._instances: dict[BindingName, Resource] = dict(instances or {})
+    Populated by lila.extensions from installed extensions, then read by the run loop,
+    the static check, and the CLI.
+    """
 
-    def register(self, resource: Resource) -> None:
+    types: dict[TypeRef, type] = field(default_factory=dict)
+    tools: dict[tuple[TypeRef, ToolName], Tool] = field(default_factory=dict)
+    instances: dict[InstanceName, Instance] = field(default_factory=dict)
+    skills: dict[SkillRef, FilePath] = field(default_factory=dict)
+
+    def register(self, instance: Instance) -> None:
         """Add an instance under its own name, replacing any existing one."""
-        self._instances[resource.name] = resource
+        self.instances[instance.name] = instance
 
-    def get(self, binding: BindingName) -> Resource:
-        """The instance registered under a binding name.
+    def instance(self, name: InstanceName) -> Instance:
+        """The instance configured under a name.
 
         Raises:
-            ResourceError: nothing is bound under that name.
+            ResourceError: nothing is configured under that name.
         """
-        instance = self._instances.get(binding)
-        if instance is None:
-            raise ResourceError(f"no resource bound as {binding!r}")
-        return instance
+        found = self.instances.get(name)
+        if found is None:
+            raise ResourceError(f"no resource configured as {name!r}")
+        return found
+
+    def tool(self, type_ref: TypeRef, call: ToolName) -> Tool:
+        """The tool a resource type defines under a name.
+
+        Raises:
+            ResourceError: that type has no such tool.
+        """
+        found = self.tools.get((type_ref, call))
+        if found is None:
+            known = sorted(name for ref, name in self.tools if ref == type_ref)
+            raise ResourceError(f"{type_ref} has no tool {call!r}; it has {known}")
+        return found
+
+    def tools_of(self, type_ref: TypeRef) -> dict[ToolName, Tool]:
+        """Every tool defined over one resource type."""
+        return {name: tool for (ref, name), tool in self.tools.items() if ref == type_ref}
 
     def bind(
         self,
-        requires: dict[SlotName, InterfaceName],
-        bindings: dict[SlotName, BindingName],
-    ) -> dict[SlotName, Resource]:
-        """Map declared slots to instances, refusing an unbound or mis-typed slot.
+        declared: dict[ResourceName, TypeRef],
+        bindings: dict[ResourceName, InstanceName],
+    ) -> dict[ResourceName, Instance]:
+        """Map a skill's declared resources to instances, refusing unbound or mis-typed.
 
         Raises:
-            ResourceError: a slot has no binding, names an unregistered instance, or
-                the instance implements a different interface.
+            ResourceError: a name has no binding, names an unconfigured instance, or
+                the instance is of a different type.
         """
-        bound: dict[SlotName, Resource] = {}
-        for slot, interface in requires.items():
-            binding = bindings.get(slot)
+        bound: dict[ResourceName, Instance] = {}
+        for name, type_ref in declared.items():
+            binding = bindings.get(name)
             if binding is None:
-                raise ResourceError(f"slot {slot!r} is unbound")
-            instance = self.get(binding)
-            if instance.interface != interface:
+                raise ResourceError(f"resource {name!r} is unbound")
+            found = self.instance(binding)
+            if found.type != type_ref:
                 raise ResourceError(
-                    f"slot {slot!r} wants {interface}, {binding!r} implements {instance.interface}"
+                    f"resource {name!r} wants {type_ref}, {binding!r} is {found.type}"
                 )
-            bound[slot] = instance
+            bound[name] = found
         return bound

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
+      "Bash(awk:*)",
+      "Bash(grep:*)",
       "Bash(make format:*)",
+      "Bash(make typecheck:*)",
       "Bash(make update:*)",
       "Bash(make run-smoke *)",
       "Bash(make -C src/core test-unit)",

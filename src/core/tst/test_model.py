@@ -213,6 +213,32 @@ def test_request_body__omits_unset_knobs_so_backend_defaults_win(model: OllamaMo
     assert "think" not in body
 
 
+def test_request_body__sends_the_installs_context_length_when_a_call_sets_none() -> None:
+    # prepare — ollama defaults to 2048 and truncates silently, so the install sets it
+    configured = OllamaModel("qwen3.5:9b", context_length=32768)
+
+    # act
+    body = configured._request_body([], GenerateOptions())
+
+    # verify
+    options = body["options"]
+    assert isinstance(options, dict)
+    assert options["num_ctx"] == 32768
+
+
+def test_request_body__lets_a_call_override_the_installs_context_length() -> None:
+    # prepare
+    configured = OllamaModel("qwen3.5:9b", context_length=32768)
+
+    # act
+    body = configured._request_body([], GenerateOptions(context_length=4096))
+
+    # verify
+    options = body["options"]
+    assert isinstance(options, dict)
+    assert options["num_ctx"] == 4096
+
+
 def test_request_body__maps_sampling_options_to_ollama_names(model: OllamaModel) -> None:
     # prepare
     options = GenerateOptions(

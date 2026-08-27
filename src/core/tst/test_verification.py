@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path as FilePath
 
 import pytest
 import yaml
 
 from lila.executor import Graph, parse_graph
+from lila.extensions import load
 from lila.verification import Issue, check
 
 # region fixtures
 
 GraphFactory = Callable[..., Graph]
+FIXTURES = FilePath(__file__).parent / "fixtures"
 
 
 @pytest.fixture
@@ -31,7 +34,7 @@ def rules(issues: list[Issue]) -> list[str]:
 
 VALID_GRAPH = """
 skill: valid
-requires: { inbox: mailbox@1 }
+resources: { inbox: test/fixture@1/mailbox }
 entry: fetch
 input:
   type: object
@@ -39,14 +42,10 @@ input:
     message_id: { type: string }
 nodes:
   - id: fetch
-    type: tool.api
-    uses: inbox
+    type: tool
+    resource: inbox
     call: get_message
     args: { id: $.input.message_id }
-    out:
-      type: object
-      properties:
-        subject: { type: string }
   - id: classify
     type: llm
     prompt: "{{ $.fetch.subject }}"
@@ -84,8 +83,8 @@ def test_check__reports_duplicate_node_ids(graph_from: GraphFactory) -> None:
         skill: dupes
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: x }
-          - { id: a, type: tool.local, call: y }
+          - { id: a, type: llm, prompt: one }
+          - { id: a, type: llm, prompt: two }
         edges:
           - { from: a, to: end }
         """)
@@ -97,32 +96,13 @@ def test_check__reports_duplicate_node_ids(graph_from: GraphFactory) -> None:
     assert "unique-node-id" in rules(issues)
 
 
-def test_check__reports_a_slot_that_collides_with_a_node_id(graph_from: GraphFactory) -> None:
-    # prepare
-    graph = graph_from("""
-        skill: collision
-        requires: { fetch: mailbox@1 }
-        entry: fetch
-        nodes:
-          - { id: fetch, type: tool.local, call: x }
-        edges:
-          - { from: fetch, to: end }
-        """)
-
-    # act
-    issues = check(graph)
-
-    # verify
-    assert "slot-node-collision" in rules(issues)
-
-
 def test_check__reports_an_edge_to_an_unknown_node(graph_from: GraphFactory) -> None:
     # prepare
     graph = graph_from("""
         skill: dangling
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: x }
+          - { id: a, type: llm, prompt: one }
         edges:
           - { from: a, to: nowhere }
         """)
@@ -140,8 +120,8 @@ def test_check__reports_edges_listed_after_an_unguarded_one(graph_from: GraphFac
         skill: dead-edges
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: x, out: { type: object } }
-          - { id: b, type: tool.local, call: y }
+          - { id: a, type: llm, prompt: one, out: { type: object } }
+          - { id: b, type: llm, prompt: two }
         edges:
           - { from: a, to: end, when: true }
           - { from: a, to: b }
@@ -161,8 +141,8 @@ def test_check__reports_a_node_unreachable_from_entry(graph_from: GraphFactory) 
         skill: orphan
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: x }
-          - { id: b, type: tool.local, call: y }
+          - { id: a, type: llm, prompt: one }
+          - { id: b, type: llm, prompt: two }
         edges:
           - { from: a, to: end }
           - { from: b, to: end }
@@ -181,8 +161,8 @@ def test_check__reports_a_node_that_cannot_reach_end(graph_from: GraphFactory) -
         skill: trap
         entry: a
         nodes:
-          - { id: a, type: tool.local, call: x }
-          - { id: b, type: tool.local, call: y }
+          - { id: a, type: llm, prompt: one }
+          - { id: b, type: llm, prompt: two }
         edges:
           - { from: a, to: b }
           - { from: b, to: b }
@@ -201,7 +181,7 @@ def test_check__reports_an_entry_that_is_not_a_node(graph_from: GraphFactory) ->
         skill: no-entry
         entry: missing
         nodes:
-          - { id: a, type: tool.local, call: x }
+          - { id: a, type: llm, prompt: one }
         edges:
           - { from: a, to: end }
         """)
@@ -238,8 +218,8 @@ def test_check__reports_a_path_outside_the_declared_out_schema(graph_from: Graph
         entry: a
         nodes:
           - id: a
-            type: tool.local
-            call: x
+            type: llm
+            prompt: one
             out:
               type: object
               properties: { subject: { type: string } }
@@ -263,8 +243,8 @@ def test_check__reports_a_when_path_outside_the_declared_schema(graph_from: Grap
         entry: a
         nodes:
           - id: a
-            type: tool.local
-            call: x
+            type: llm
+            prompt: one
             out:
               type: object
               properties: { route: { type: string } }
@@ -280,11 +260,11 @@ def test_check__reports_a_when_path_outside_the_declared_schema(graph_from: Grap
     assert "path" in rules(issues)
 
 
-def test_check__reports_a_path_reading_into_a_resource_handle(graph_from: GraphFactory) -> None:
-    # prepare
+def test_check__reports_a_path_naming_a_resource(graph_from: GraphFactory) -> None:
+    # prepare — $. is memory only, so a resource name resolves to nothing
     graph = graph_from("""
         skill: peeking
-        requires: { inbox: mailbox@1 }
+        resources: { inbox: test/fixture@1/mailbox }
         entry: a
         nodes:
           - { id: a, type: llm, prompt: "{{ $.inbox.password }}" }
@@ -299,7 +279,9 @@ def test_check__reports_a_path_reading_into_a_resource_handle(graph_from: GraphF
     assert "path" in rules(issues)
 
 
-def test_check__reports_an_unbound_slot_when_bindings_are_given(graph_from: GraphFactory) -> None:
+def test_check__reports_an_unbound_resource_when_bindings_are_given(
+    graph_from: GraphFactory,
+) -> None:
     # prepare
     graph = graph_from(VALID_GRAPH)
 
@@ -307,7 +289,7 @@ def test_check__reports_an_unbound_slot_when_bindings_are_given(graph_from: Grap
     issues = check(graph, bindings={})
 
     # verify
-    assert rules(issues) == ["unbound-slot"]
+    assert rules(issues) == ["unbound-resource"]
 
 
 def test_check__reports_a_return_path_outside_the_declared_schema(
@@ -319,8 +301,8 @@ def test_check__reports_a_return_path_outside_the_declared_schema(
         entry: a
         nodes:
           - id: a
-            type: tool.local
-            call: x
+            type: llm
+            prompt: one
             out:
               type: object
               properties: { route: { type: string } }
@@ -334,6 +316,131 @@ def test_check__reports_a_return_path_outside_the_declared_schema(
 
     # verify
     assert "path" in rules(issues)
+
+
+def test_check__reports_a_tool_node_naming_an_undeclared_resource(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: undeclared
+        entry: a
+        nodes:
+          - { id: a, type: tool, resource: inbox, call: get_message }
+        edges:
+          - { from: a, to: end }
+        """)
+
+    # act
+    issues = check(graph)
+
+    # verify
+    assert rules(issues) == ["undeclared-resource"]
+
+
+def test_check__reports_a_call_the_resource_type_does_not_have(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — the rule needs a registry: without one, nothing knows what exists
+    graph = graph_from(VALID_GRAPH.replace("call: get_message", "call: burn_inbox"))
+
+    # act
+    issues = check(graph, registry=load(FIXTURES))
+
+    # verify
+    assert rules(issues) == ["unknown-tool"]
+
+
+def test_check__reports_a_path_outside_a_tools_own_result_schema(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — get_message returns id and subject, so $.fetch.body is not there
+    graph = graph_from(VALID_GRAPH.replace("{{ $.fetch.subject }}", "{{ $.fetch.body }}"))
+
+    # act
+    issues = check(graph, registry=load(FIXTURES))
+
+    # verify
+    assert [issue.node_id for issue in issues if issue.rule == "path"] == ["classify"]
+
+
+MAP_GRAPH = """
+skill: mapper
+entry: fan
+input:
+  type: object
+  properties:
+    ids: { type: array, items: { type: string } }
+nodes:
+  - id: fan
+    type: skill.run
+    for_each: $.input.ids
+    input: { message_id: $.each }
+    graph:
+      skill: child
+      entry: work
+      nodes:
+        - id: work
+          type: llm
+          prompt: one
+      edges:
+        - { from: work, to: end }
+edges:
+  - { from: fan, to: end }
+"""
+
+
+def test_check__accepts_each_inside_a_mapped_skill_run(graph_from: GraphFactory) -> None:
+    # prepare
+    graph = graph_from(MAP_GRAPH)
+
+    # act
+    issues = check(graph)
+
+    # verify
+    assert issues == []
+
+
+def test_check__reports_each_outside_a_mapped_node(graph_from: GraphFactory) -> None:
+    # prepare — no for_each, so nothing binds $.each
+    graph = graph_from(MAP_GRAPH.replace("    for_each: $.input.ids\n", ""))
+
+    # act
+    issues = check(graph)
+
+    # verify
+    assert rules(issues) == ["path"]
+
+
+def test_check__reports_a_for_each_path_that_names_nothing(graph_from: GraphFactory) -> None:
+    # prepare
+    graph = graph_from(MAP_GRAPH.replace("$.input.ids", "$.nowhere.ids"))
+
+    # act
+    issues = check(graph)
+
+    # verify
+    assert rules(issues) == ["path"]
+
+
+def test_check__reports_a_node_named_each(graph_from: GraphFactory) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: reserved
+        entry: each
+        nodes:
+          - id: each
+            type: llm
+            prompt: one
+        edges:
+          - { from: each, to: end }
+        """)
+
+    # act
+    issues = check(graph)
+
+    # verify
+    assert rules(issues) == ["unique-node-id"]
 
 
 # endregion

@@ -161,10 +161,14 @@ class OllamaModel(Model):
         host: str = DEFAULT_OLLAMA_HOST,
         client: httpx.AsyncClient | None = None,
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
+        context_length: int | None = None,
     ) -> None:
         self._model = model
         self._host = host.rstrip("/")
         self._timeout = timeout
+        # Ollama defaults to 2048 and truncates silently past it, so an install sets
+        # this once for the machine it runs on. A call may still override it.
+        self._context_length = context_length
         # An injected client is the caller's to close.
         self._client = client
         self._owns_client = client is None
@@ -209,8 +213,9 @@ class OllamaModel(Model):
             sampling["num_predict"] = opts.max_tokens
         if opts.stop:
             sampling["stop"] = list(opts.stop)
-        if opts.context_length is not None:
-            sampling["num_ctx"] = opts.context_length
+        context_length = opts.context_length or self._context_length
+        if context_length is not None:
+            sampling["num_ctx"] = context_length
 
         body: dict[str, Json] = {
             "model": self._model,

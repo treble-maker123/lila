@@ -1,7 +1,7 @@
 """Graph model, loader, path expressions, run memory/record, and the run loop.
 
 One module on purpose: the interfaces are still moving, and splitting it later is
-mechanical. Handlers for ``tool.*`` live in lila.tools; the static check in
+mechanical. The ``tool`` handler lives in lila.tools; the static check in
 lila.verification.
 """
 
@@ -18,26 +18,19 @@ from typing import Literal, TypeGuard
 import jsonschema
 import yaml
 
+from lila.ext import ToolName, TypeRef
 from lila.model import GenerateOptions, Message, Model, Usage
-from lila.resources import (
-    ArgName,
-    CallName,
-    InterfaceName,
-    Resource,
-    ResourceRegistry,
-    SlotName,
-)
+from lila.resources import ArgName, Instance, Registry, ResourceName, SkillRef
 from lila.values import Json, JsonSchema, Yaml
 
 # region names
 
 # Every str in the model is one of these. Aliases, not NewTypes: this module's job is
 # turning untyped YAML into the model, and NewType would mean wrapping at every field.
-# SlotName/InterfaceName/CallName/ArgName live in lila.resources — import them from there.
+# ResourceName/ArgName/SkillRef live in lila.resources, ToolName/TypeRef in lila.ext.
 type NodeId = str  # a node's id in its own graph; ``end`` is the reserved target
 type ModelAlias = str  # resolved against RunContext.models — never a raw model id
 type SkillName = str  # a skill's own name
-type SkillRef = str  # ``name@version`` or a path, resolved by a SkillResolver
 type OutputName = str  # key in the graph's ``return:``
 type FieldName = str  # key inside a value — a mapping key or a path's root
 type PathText = str  # a ``$.`` path as written, e.g. ``$.classify.label``
@@ -45,12 +38,11 @@ type InputLabel = str  # what the record keys a read value by — a PathText, Ar
 type WhenText = str  # an edge's ``when:`` rendered back to source, for the record
 type PromptTemplate = str  # a prompt with ``{{ $. }}`` holes
 type Comment = str  # free-form author note; never read by the run loop
+type Description = str  # a skill's public one-line summary of what it does
 
-# Json/JsonSchema/Yaml come from lila.values; these two add this module's own types.
+# Json/JsonSchema/Yaml come from lila.values; this adds this module's own type.
 # A structured field after compile_value: the same shape, with ``$.`` strings as Paths.
 type Compiled = Path | str | int | float | bool | None | list[Compiled] | dict[str, Compiled]
-# What resolving a Compiled field yields: JSON, or a bound handle when a path names a slot.
-type Resolved = Json | Resource
 
 # endregion
 
@@ -207,9 +199,9 @@ def template_paths(template: PromptTemplate) -> list[Path]:
 
 # region graph model
 
-NodeType = Literal["llm", "tool.api", "tool.local", "tool.mcp", "skill.run"]
+NodeType = Literal["llm", "tool", "skill.run"]
 # What ``type:`` may say in a file: the canonical set plus the accepted graph.run spelling.
-NodeSpelling = Literal["llm", "tool.api", "tool.local", "tool.mcp", "skill.run", "graph.run"]
+NodeSpelling = Literal["llm", "tool", "skill.run", "graph.run"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,31 +210,21 @@ class LlmConfig:
 
     prompt: PromptTemplate  # ``{{ $. }}`` holes are filled from run memory
     model: ModelAlias = "default"  # bound by the caller, so a graph names no vendor
+    # Reasoning, off unless a node asks for it: it costs tokens and latency out of
+    # proportion to most nodes' work. A ``$.`` path lets an earlier node decide.
+    think: Compiled = False
 
 
 @dataclass(frozen=True, slots=True)
-class ApiConfig:
-    """A ``tool.api`` node: one operation on a resource bound to a slot."""
+class ToolConfig:
+    """A ``tool`` node: one tool call on a resource the graph declared.
 
-    uses: SlotName  # the slot to call, declared in the graph's ``requires:``
-    call: CallName  # the operation on that slot's interface
-    args: dict[ArgName, Compiled] = field(default_factory=dict)  # paths resolve per call
+    Three coordinates and no fourth: transport lives inside the tool's implementation,
+    so an HTTP call, an MCP call, and a pure transform are all this node.
+    """
 
-
-@dataclass(frozen=True, slots=True)
-class LocalConfig:
-    """A ``tool.local`` node: an in-process callable, the transform escape hatch."""
-
-    call: CallName  # key in RunContext.locals
-    args: dict[ArgName, Compiled] = field(default_factory=dict)  # paths resolve per call
-
-
-@dataclass(frozen=True, slots=True)
-class McpConfig:
-    """A ``tool.mcp`` node: like tool.api, over an MCP server. Not yet handled."""
-
-    uses: SlotName  # the slot to call, declared in the graph's ``requires:``
-    call: CallName  # the tool name on that server
+    resource: ResourceName  # the resource to call, declared in the graph's ``resources:``
+    call: ToolName  # a tool on that resource's type
     args: dict[ArgName, Compiled] = field(default_factory=dict)  # paths resolve per call
 
 
@@ -253,19 +235,24 @@ class SkillRunConfig:
     ref: SkillRef | None = None  # exactly one of ref:/graph: — resolved at run time
     graph: Graph | None = None  # exactly one of ref:/graph: — inlined at load
     input: dict[ArgName, Compiled] = field(default_factory=dict)  # becomes the child's ``$.input``
-    resources: dict[SlotName, Path] = field(default_factory=dict)  # child slot -> parent slot
+    # child resource name -> parent resource name; a handle crosses by name, never as a value
+    resources: dict[ResourceName, ResourceName] = field(default_factory=dict)
+    # A path to a list: the node runs one child per item, ``$.each``, and outputs the
+    # list of their outputs. Fan-out lives in one node, so the run loop stays linear.
+    for_each: Path | None = None
 
 
-NodeConfig = LlmConfig | ApiConfig | LocalConfig | McpConfig | SkillRunConfig
+NodeConfig = LlmConfig | ToolConfig | SkillRunConfig
 
 
 @dataclass(frozen=True, slots=True)
 class Node:
     """One step: what to run and what its output must look like."""
 
-    id: NodeId  # unique in its graph, and shares a namespace with slot names
+    id: NodeId  # unique in its graph
     type: NodeType  # picks the loader, the config type, and the handler
-    config: NodeConfig  # the transport's own fields, already compiled
+    config: NodeConfig  # the node type's own fields, already compiled
+    # Declared for llm and skill.run; a tool node has none — its tool declares the shape.
     out: JsonSchema | None = None  # validated after the handler; None means unchecked
     comment: Comment = ""  # author's note; never read by the run loop
 
@@ -344,6 +331,7 @@ def _literal(text: str) -> Json:
 
 
 END: NodeId = "end"
+EACH: NodeId = "each"  # the current item inside a mapped skill.run's ``input:``
 
 
 def describe(predicate: Predicate | None) -> WhenText:
@@ -378,7 +366,11 @@ class Graph:
     entry: NodeId  # where a run starts
     nodes: tuple[Node, ...]
     edges: tuple[Edge, ...]  # file order is semantics — first match wins
-    requires: dict[SlotName, InterfaceName] = field(default_factory=dict)  # slots to bind
+    # What this skill does, in one line. Public, unlike ``comment:``: install lists it,
+    # and a model choosing among skills reads it.
+    description: Description = ""
+    # ``resources:`` — what this skill needs, bound to instances at install
+    resources: dict[ResourceName, TypeRef] = field(default_factory=dict)
     input: JsonSchema | None = None  # validated before the run
     output: JsonSchema | None = None  # validated after the run
     returns: dict[OutputName, Path] = field(default_factory=dict)  # ``return:`` — builds the output
@@ -441,7 +433,8 @@ def _load_llm(raw: dict[str, Yaml], node_id: NodeId) -> LlmConfig:
     """Load an ``llm`` node's config.
 
     Raises:
-        GraphError: no prompt, a non-alias model, or a bad path in the prompt.
+        GraphError: no prompt, a non-alias model, a bad path in the prompt, or a
+            ``think:`` that is neither a boolean nor a ``$.`` path.
     """
     prompt = raw.get("prompt")
     if not isinstance(prompt, str):
@@ -450,59 +443,29 @@ def _load_llm(raw: dict[str, Yaml], node_id: NodeId) -> LlmConfig:
     model = raw.get("model", "default")
     if not isinstance(model, str):
         raise GraphError("model: must be an alias", node_id=node_id)
-    return LlmConfig(prompt=prompt, model=model)
+    raw_think = raw.get("think", False)
+    if not isinstance(raw_think, bool) and not is_path(raw_think):
+        raise GraphError("think: must be true, false, or a $. path", node_id=node_id)
+    think = compile_value(raw_think)
+    return LlmConfig(prompt=prompt, model=model, think=think)
 
 
-def _load_call(
-    raw: dict[str, Yaml], node_id: NodeId
-) -> tuple[SlotName, CallName, dict[ArgName, Compiled]]:
-    """Load the ``uses:``/``call:``/``args:`` triple shared by the remote transports.
+def _load_tool(raw: dict[str, Yaml], node_id: NodeId) -> ToolConfig:
+    """Load a ``tool`` node's ``resource:``/``call:``/``args:`` triple.
 
     Raises:
-        GraphError: uses:/call: missing or not strings, or args: is not a mapping.
+        GraphError: resource:/call: missing or not strings, args: is not a mapping,
+            or the node declares an ``out:`` the tool already declares.
     """
-    uses, call = raw.get("uses"), raw.get("call")
-    if not isinstance(uses, str):
-        raise GraphError("node needs uses: naming a slot", node_id=node_id)
+    resource, call = raw.get("resource"), raw.get("call")
+    if not isinstance(resource, str):
+        raise GraphError("tool node needs resource: naming a declared resource", node_id=node_id)
     if not isinstance(call, str):
-        raise GraphError("node needs call:", node_id=node_id)
+        raise GraphError("tool node needs call:", node_id=node_id)
+    if raw.get("out") is not None:
+        raise GraphError("tool node cannot declare out: — its tool does", node_id=node_id)
     args = compile_mapping(_require_json_mapping(raw.get("args", {}), "args:", node_id))
-    return uses, call, args
-
-
-def _load_api(raw: dict[str, Yaml], node_id: NodeId) -> ApiConfig:
-    """Load a ``tool.api`` node's config.
-
-    Raises:
-        GraphError: the uses:/call:/args: triple is malformed.
-    """
-    uses, call, args = _load_call(raw, node_id)
-    return ApiConfig(uses=uses, call=call, args=args)
-
-
-def _load_mcp(raw: dict[str, Yaml], node_id: NodeId) -> McpConfig:
-    """Load a ``tool.mcp`` node's config.
-
-    Raises:
-        GraphError: the uses:/call:/args: triple is malformed.
-    """
-    uses, call, args = _load_call(raw, node_id)
-    return McpConfig(uses=uses, call=call, args=args)
-
-
-def _load_local(raw: dict[str, Yaml], node_id: NodeId) -> LocalConfig:
-    """Load a ``tool.local`` node's config.
-
-    Raises:
-        GraphError: call: is missing or args: is not a mapping.
-    """
-    call = raw.get("call")
-    if not isinstance(call, str):
-        raise GraphError(
-            "tool.local node needs call: naming a registered callable", node_id=node_id
-        )
-    args = compile_mapping(_require_json_mapping(raw.get("args", {}), "args:", node_id))
-    return LocalConfig(call=call, args=args)
+    return ToolConfig(resource=resource, call=call, args=args)
 
 
 def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId) -> SkillRunConfig:
@@ -519,20 +482,24 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId) -> SkillRunConfig:
         raise GraphError("ref: must be a name@version or a path", node_id=node_id)
     graph = parse_graph(_require_mapping(inline, "graph:", node_id)) if inline is not None else None
     node_input = compile_mapping(_require_json_mapping(raw.get("input", {}), "input:", node_id))
-    resources: dict[SlotName, Path] = {}
-    for slot, value in _require_mapping(raw.get("resources", {}), "resources:", node_id).items():
-        if not is_path(value):
-            raise GraphError(f"resources.{slot} must be a $. path", node_id=node_id)
-        resources[slot] = parse_path(str(value))
-    return SkillRunConfig(ref=ref, graph=graph, input=node_input, resources=resources)
+    resources: dict[ResourceName, ResourceName] = {}
+    for name, value in _require_mapping(raw.get("resources", {}), "resources:", node_id).items():
+        if not isinstance(value, str) or is_path(value):
+            raise GraphError(f"resources.{name} must name a declared resource", node_id=node_id)
+        resources[name] = value
+    raw_each = raw.get("for_each")
+    if raw_each is not None and not is_path(raw_each):
+        raise GraphError("for_each: must be a $. path", node_id=node_id)
+    for_each = parse_path(str(raw_each)) if raw_each is not None else None
+    return SkillRunConfig(
+        ref=ref, graph=graph, input=node_input, resources=resources, for_each=for_each
+    )
 
 
 # Node type -> config loader. Adding a transport is one entry.
 NODE_LOADERS: dict[NodeSpelling, Callable[[dict[str, Yaml], NodeId], NodeConfig]] = {
     "llm": _load_llm,
-    "tool.api": _load_api,
-    "tool.local": _load_local,
-    "tool.mcp": _load_mcp,
+    "tool": _load_tool,
     "skill.run": _load_skill_run,
     "graph.run": _load_skill_run,  # a spelling of skill.run, normalized on load
 }
@@ -612,9 +579,9 @@ def parse_graph(raw: dict[str, Yaml], source: FilePath | None = None) -> Graph:
     if not isinstance(edges_list, list):
         raise GraphError("edges: must be a list")
 
-    requires: dict[SlotName, InterfaceName] = {
-        slot: str(interface)
-        for slot, interface in _require_mapping(raw.get("requires", {}), "requires:").items()
+    resources: dict[ResourceName, TypeRef] = {
+        name: str(type_ref)
+        for name, type_ref in _require_mapping(raw.get("resources", {}), "resources:").items()
     }
     returns: dict[OutputName, Path] = {}
     for name, value in _require_mapping(raw.get("return", {}), "return:").items():
@@ -628,7 +595,8 @@ def parse_graph(raw: dict[str, Yaml], source: FilePath | None = None) -> Graph:
         entry=entry,
         nodes=tuple(_load_node(node) for node in nodes_list),
         edges=tuple(_load_edge(edge) for edge in edges_list),
-        requires=requires,
+        description=str(raw.get("description", "")).strip(),
+        resources=resources,
         input=_schema(raw.get("input"), "input:"),
         output=_schema(raw.get("output"), "output:"),
         returns=returns,
@@ -660,20 +628,20 @@ def load_graph(path: FilePath | str) -> Graph:
 class RunMemory:
     """Append-only history per node id, addressed by ``$.`` path.
 
-    ``$.input`` is seeded at start. Slots resolve to a bound resource handle and are
-    never stored, so credentials cannot reach memory or the record.
+    ``$.input`` is seeded at start. Bound resources ride along but are not addressable:
+    ``$.`` is memory and only memory, so a handle can never reach a prompt or the record.
     """
 
     def __init__(
-        self, run_input: Json, resources: Mapping[SlotName, Resource] | None = None
+        self, run_input: Json, resources: Mapping[ResourceName, Instance] | None = None
     ) -> None:
-        """Seed ``$.input`` with the run input and hold the bound slots."""
+        """Seed ``$.input`` with the run input and hold the resources bound for the run."""
         self._history: dict[NodeId, list[Json]] = {"input": [run_input]}
-        self._resources: dict[SlotName, Resource] = dict(resources or {})
+        self._resources: dict[ResourceName, Instance] = dict(resources or {})
 
     @property
-    def resources(self) -> Mapping[SlotName, Resource]:
-        """Slots bound for this run."""
+    def resources(self) -> Mapping[ResourceName, Instance]:
+        """Resources bound for this run, by the name the graph declared."""
         return self._resources
 
     def history(self, node_id: NodeId) -> list[Json]:
@@ -684,27 +652,32 @@ class RunMemory:
         """Record one more execution of a node."""
         self._history.setdefault(node_id, []).append(value)
 
+    def with_value(self, node_id: NodeId, value: Json) -> RunMemory:
+        """A copy with one more name bound — how a map node exposes ``$.each``.
+
+        The copy shares the same resources; writes to it do not reach this memory.
+        """
+        scoped = RunMemory(None, self._resources)
+        scoped._history = {key: list(values) for key, values in self._history.items()}
+        scoped._history[node_id] = [value]
+        return scoped
+
     def snapshot(self) -> dict[NodeId, list[Json]]:
         """A copy of the whole history, for the record or a stub set."""
         return {node_id: list(values) for node_id, values in self._history.items()}
 
-    def resolve(self, path: Path) -> Resolved:
-        """Read one ``$.`` path out of memory, or return the bound slot it names.
+    def resolve(self, path: Path) -> Json:
+        """Read one ``$.`` path out of memory.
 
         Raises:
-            RunError: the path names nothing, reads into a resource handle, or does
-                not resolve against the stored value.
+            RunError: the path names nothing, or does not resolve against the stored
+                value.
         """
         root = path.segments[0]
         assert isinstance(root, Key)
-        rest = path.segments[1:]
-        if root.name in self._resources:
-            if rest:
-                raise RunError(f"{path} reads into a resource handle")
-            return self._resources[root.name]
         if root.name not in self._history:
             raise RunError(f"{path} names nothing in run memory")
-        return self._resolve_history(self._history[root.name], rest, path)
+        return self._resolve_history(self._history[root.name], path.segments[1:], path)
 
     def _resolve_history(self, history: list[Json], rest: tuple[Segment, ...], path: Path) -> Json:
         """Pick the execution the path selects, then walk into it.
@@ -761,18 +734,6 @@ class RunMemory:
                     current = list(current)
         return current
 
-    def resolve_json(self, path: Path) -> Json:
-        """Read one path that must name a value, not a slot.
-
-        Raises:
-            RunError: the path does not resolve, or names a slot — a handle crosses a
-                boundary by ``resources:``, never as a value.
-        """
-        resolved = self.resolve(path)
-        if isinstance(resolved, Resource):
-            raise RunError(f"{path} is a resource handle, not a value")
-        return resolved
-
     def resolve_mapping(self, field_value: dict[ArgName, Compiled]) -> dict[ArgName, Json]:
         """Resolve a whole ``args:``/``input:`` mapping.
 
@@ -788,7 +749,7 @@ class RunMemory:
             RunError: a path does not resolve, or names a slot.
         """
         if isinstance(value, Path):
-            return self.resolve_json(value)
+            return self.resolve(value)
         if isinstance(value, dict):
             return {key: self.resolve_value(item) for key, item in value.items()}
         if isinstance(value, list):
@@ -805,7 +766,7 @@ class RunMemory:
 
         def substitute(match: re.Match[str]) -> str:
             """Replace one hole with its resolved value, JSON-encoding non-strings."""
-            value = self.resolve_json(parse_path(match.group(1)))
+            value = self.resolve(parse_path(match.group(1)))
             return value if isinstance(value, str) else json.dumps(value)
 
         return _TEMPLATE.sub(substitute, template)
@@ -824,12 +785,15 @@ class NodeEntry:
     type: NodeType
     inputs: dict[InputLabel, Json] = field(default_factory=dict)  # what the node read
     output: Json = None  # what it produced, after ``out:`` validation
-    resources: tuple[SlotName, ...] = ()  # slots it touched; handles never enter the record
+    # Resources it touched, by name; handles and credentials never enter the record.
+    resources: tuple[ResourceName, ...] = ()
     duration_ms: float = 0.0
     model: ModelAlias | None = None  # llm nodes only
     usage: Usage | None = None  # llm nodes only
     # Present for skill.run — the nested run's own record.
     child: RunRecord | None = None
+    # Present for a mapped skill.run — one record per item, in order.
+    children: list[RunRecord] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -875,10 +839,11 @@ class NodeResult:
 
     output: Json  # goes to memory and the record, after ``out:`` validation
     inputs: dict[InputLabel, Json] = field(default_factory=dict)
-    resources: tuple[SlotName, ...] = ()
+    resources: tuple[ResourceName, ...] = ()
     model: ModelAlias | None = None
     usage: Usage | None = None
     child: RunRecord | None = None
+    children: tuple[RunRecord, ...] = ()  # one per item, for a map node
 
 
 @dataclass(frozen=True, slots=True)
@@ -892,7 +857,6 @@ class NodeCall:
 
 Handler = Callable[[NodeCall], Awaitable[NodeResult]]
 SkillResolver = Callable[[SkillRef], Graph]
-LocalCallable = Callable[[dict[ArgName, Json]], Json]
 
 
 @dataclass(frozen=True, slots=True)
@@ -901,8 +865,7 @@ class RunContext:
 
     handlers: dict[NodeType, Handler]  # node type -> what runs it
     models: dict[ModelAlias, Model] = field(default_factory=dict)  # binds ``model:`` aliases
-    resources: ResourceRegistry | None = None
-    locals: dict[CallName, LocalCallable] = field(default_factory=dict)  # tool.local callables
+    registry: Registry | None = None  # resource types, tools, instances
     skills: SkillResolver | None = None  # resolves a skill.run ``ref:``
     backend_version: str | None = None  # stamped onto the record
     # Guards a runaway loop; a graph has no other stop condition yet.
@@ -928,13 +891,13 @@ def evaluate(predicate: Predicate, memory: RunMemory) -> tuple[bool, dict[InputL
         case Always():
             return True, {}
         case Truthy(path):
-            value = memory.resolve_json(path)
+            value = memory.resolve(path)
             return bool(value), {path.text: value}
         case Comparison(op, left, right):
-            left_value = memory.resolve_json(left)
+            left_value = memory.resolve(left)
             inputs: dict[InputLabel, Json] = {left.text: left_value}
             if isinstance(right, Path):
-                right_value = memory.resolve_json(right)
+                right_value = memory.resolve(right)
                 inputs[right.text] = right_value
             else:
                 right_value = right
@@ -971,22 +934,22 @@ def _validate(value: Json, schema: JsonSchema | None, what: str, node_id: NodeId
         raise RunError(f"{what} failed validation: {exc.message}", node_id=node_id) from exc
 
 
-def bind_slots(graph: Graph, resources: Mapping[SlotName, Resource]) -> dict[SlotName, Resource]:
-    """Resolve every declared slot once, at run start.
+def bind_resources(
+    graph: Graph, resources: Mapping[ResourceName, Instance]
+) -> dict[ResourceName, Instance]:
+    """Resolve every declared resource once, at run start.
 
     Raises:
-        RunError: a slot is unbound or bound to the wrong interface.
+        RunError: a resource is unbound or bound to an instance of another type.
     """
-    bound: dict[SlotName, Resource] = {}
-    for slot, interface in graph.requires.items():
-        handle = resources.get(slot)
-        if handle is None:
-            raise RunError(f"slot {slot!r} is unbound")
-        if handle.interface != interface:
-            raise RunError(
-                f"slot {slot!r} wants {interface}, bound to {handle.interface}",
-            )
-        bound[slot] = handle
+    bound: dict[ResourceName, Instance] = {}
+    for name, type_ref in graph.resources.items():
+        instance = resources.get(name)
+        if instance is None:
+            raise RunError(f"resource {name!r} is unbound")
+        if instance.type != type_ref:
+            raise RunError(f"resource {name!r} wants {type_ref}, bound to {instance.type}")
+        bound[name] = instance
     return bound
 
 
@@ -994,17 +957,17 @@ async def run(
     graph: Graph,
     run_input: dict[ArgName, Json],
     context: RunContext,
-    resources: Mapping[SlotName, Resource] | None = None,
+    resources: Mapping[ResourceName, Instance] | None = None,
 ) -> RunResult:
     """Execute a graph. A nested run is this same function with a fresh memory.
 
     Raises:
-        RunError: input/output validation fails, a slot is unbound, a node has no
+        RunError: input/output validation fails, a resource is unbound, a node has no
             handler or fails, no edge matches, an edge points at an unknown node, or
             the run exceeds ``max_steps``.
     """
     _validate(run_input, graph.input, "graph input", None)
-    memory = RunMemory(run_input, bind_slots(graph, resources or {}))
+    memory = RunMemory(run_input, bind_resources(graph, resources or {}))
     record = RunRecord(
         skill=graph.skill, version=graph.version, backend_version=context.backend_version
     )
@@ -1021,7 +984,7 @@ async def run(
         await _execute(node, memory, context, record)
         current = _next_node(graph, node, memory, record)
 
-    output = {name: memory.resolve_json(path) for name, path in graph.returns.items()}
+    output = {name: memory.resolve(path) for name, path in graph.returns.items()}
     _validate(output, graph.output, "graph output", None)
     return RunResult(output=output, record=record, memory=memory)
 
@@ -1051,6 +1014,7 @@ async def _execute(node: Node, memory: RunMemory, context: RunContext, record: R
             model=result.model,
             usage=result.usage,
             child=result.child,
+            children=list(result.children),
         )
     )
 
@@ -1082,8 +1046,9 @@ async def llm_handler(call: NodeCall) -> NodeResult:
     """Render the prompt, decode against ``out:``, append the parsed object.
 
     Raises:
-        RunError: the model alias is unbound, a prompt path does not resolve, or the
-            model did not return JSON when ``out:`` is declared.
+        RunError: the model alias is unbound, a prompt path does not resolve,
+            ``think:`` does not resolve to a boolean, or the model did not return JSON
+            when ``out:`` is declared.
     """
     node = call.node
     config = node.config
@@ -1091,10 +1056,13 @@ async def llm_handler(call: NodeCall) -> NodeResult:
     model = call.context.models.get(config.model)
     if model is None:
         raise RunError(f"no model bound to alias {config.model!r}", node_id=node.id)
+    think = call.memory.resolve_value(config.think)
+    if not isinstance(think, bool):
+        raise RunError(f"think: resolved to {think!r}, which is not a boolean", node_id=node.id)
     prompt = call.memory.render(config.prompt)
     completion = await model.complete(
         [Message(role="user", content=prompt)],
-        GenerateOptions(json_schema=node.out),
+        GenerateOptions(json_schema=node.out, think=think),
     )
     try:
         output = json.loads(completion.text) if node.out is not None else completion.text
@@ -1113,9 +1081,13 @@ async def llm_handler(call: NodeCall) -> NodeResult:
 async def skill_run_handler(call: NodeCall) -> NodeResult:
     """Run a nested graph with a fresh memory built only from input:/resources:.
 
+    With ``for_each:`` the node is a map: one child run per item, exposed to ``input:``
+    as ``$.each``, and the node's output is the list of their outputs.
+
     Raises:
-        RunError: ``ref:`` needs a resolver that is not bound, a resources: path is
-            not a bound slot, or the nested run itself fails.
+        RunError: ``ref:`` needs a resolver that is not bound, a ``resources:`` entry
+            names something the parent did not declare, ``for_each:`` does not name a
+            list, or a child run fails.
     """
     node = call.node
     config = node.config
@@ -1126,20 +1098,43 @@ async def skill_run_handler(call: NodeCall) -> NodeResult:
             raise RunError("no skill resolver bound", node_id=node.id)
         assert config.ref is not None
         child_graph = call.context.skills(config.ref)
-    child_input = call.memory.resolve_mapping(config.input)
     # The isolation rule falls out of not passing the parent's objects down.
-    child_resources: dict[SlotName, Resource] = {}
-    for slot, path in config.resources.items():
-        handle = call.memory.resolve(path)
-        if not isinstance(handle, Resource):
-            raise RunError(f"resources.{slot} is not a bound slot", node_id=node.id)
-        child_resources[slot] = handle
-    result = await run(child_graph, child_input, call.context, child_resources)
+    child_resources: dict[ResourceName, Instance] = {}
+    for child_name, parent_name in config.resources.items():
+        instance = call.memory.resources.get(parent_name)
+        if instance is None:
+            raise RunError(
+                f"resources.{child_name} names {parent_name!r}, which this graph does not declare",
+                node_id=node.id,
+            )
+        child_resources[child_name] = instance
+
+    if config.for_each is None:
+        child_input = call.memory.resolve_mapping(config.input)
+        result = await run(child_graph, child_input, call.context, child_resources)
+        return NodeResult(
+            output=result.output,
+            inputs=child_input,
+            resources=tuple(child_resources),
+            child=result.record,
+        )
+
+    items = call.memory.resolve(config.for_each)
+    if not isinstance(items, list):
+        raise RunError(f"for_each {config.for_each} does not name a list", node_id=node.id)
+    outputs: list[Json] = []
+    records: list[RunRecord] = []
+    for item in items:
+        scoped = call.memory.with_value(EACH, item)
+        child_input = scoped.resolve_mapping(config.input)
+        result = await run(child_graph, child_input, call.context, child_resources)
+        outputs.append(result.output)
+        records.append(result.record)
     return NodeResult(
-        output=result.output,
-        inputs=child_input,
+        output=outputs,
+        inputs={config.for_each.text: items},
         resources=tuple(child_resources),
-        child=result.record,
+        children=tuple(records),
     )
 
 
@@ -1147,7 +1142,7 @@ async def skill_run_handler(call: NodeCall) -> NodeResult:
 
 
 def resolve_skill_path(root: FilePath) -> SkillResolver:
-    """Resolve ``ref:`` as a path under ``root``. Registry names are later work."""
+    """Resolve ``ref:`` as a path under ``root`` — the fallback when nothing is installed."""
 
     def resolve(ref: SkillRef) -> Graph:
         """Load the graph at ``root/ref``, or ``root/ref/skill.yaml`` for a directory.

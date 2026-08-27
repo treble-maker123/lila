@@ -1,11 +1,79 @@
 # Lean Intelligent Local Agent (LILA)
 
-Current agent harnesses such as Hermes and OpenClaw encode skills as natural language instructions interpreted turn-by-turn by an LLM (aka "loops"). It lowers the barrier to entry for both technical and non-technical users alike to experiment with agents, but it requires a large model to re-derive control flow on every run: the same job can execute differently when repeated, small wording changes silently alter behavior, and debugging a failed multi-step task means reading a chat transcript.
+## Introduction
 
-LILA is a graph-first harness that makes the control flow explicit. Nodes do one job, edges decide what happens next. A narrow job and minimal context is a task a small model can handle, a full agent loop is not.
+LILA is an opinionated *vehicle* (harness + model) that focuses on **privacy**, **explicit execution**, and **efficiency**. The harness is 100% local, and the model is 100% local, so your data does not need to leave your computer.
 
-LILA runs locally, not just your state, but the model as well. Your conversations stay on your machine instead of someone else's. Target hardware is a MacBook with 16GB of unified memory, or a GPU with 11GB of VRAM.
+### Problem
 
-**Why not LILA?**
+Most current AI agent harnesses encode skills as natural language instructions and operate in a loop of *message* -> *thinking through* -> *taking action* -> *observing* -> *more thinking* -> *more actions* until it thinks it's complete. 
 
-Graph-first also means LILA is biased toward repeatable tasks, not open-ended exploration - open-ended research, one-off tasks where defining a graph costs more than just asking, anything needing a frontier model's judgement in a single shot.
+While this setup optimizes for ease of getting started and one-off use cases, its lack of structure - which leads to opacity by design - makes reliability and trust hard to earn, because the same task can run differently when repeated, small wording changes may alter behavior, and trying to figure out what went wrong means reading a chat transcript.
+
+Most importantly, the unstructured accrual of messages and outputs into the context window as a task progresses necessitates a large, and often remote, language model - how comfortable are you with the E-mail to your therapist being a line item on someone else's training or eval dataset? 
+
+For such harnesses, visibility isn't built in - it's bolted on after the fact.
+
+### Why LILA?
+
+LILA approaches agent harness from a different philosophy - using graphs to bring structure to interactions and tasks. Agent interaction happens on a graph. Skills are defined in graphs - you can compile your natural language skills to a graph if you wish.
+
+What do you get?
+
+- **Local runs, 100% private** - because interactions decompose into smaller nodes, a smaller model can handle work normally reserved for bigger ones.
+- **Debuggability** - A graphical representation is easier to digest than chat logs.
+- **Predictability / trustworthiness** - Run the same task twice, get the same shape of result.
+
+## Deep Dive
+
+### Architecture
+
+```mermaid
+flowchart TB
+    subgraph core["Core — LILA authors"]
+        EXEC["Executor<br/><i>runs a graph</i>"]
+        VERIFY["Verifier<br/><i>static check, no I/O</i>"]
+        REG["Registry<br/><i>the one seam: skills, resource types, tools, instances</i>"]
+        MODEL["Model<br/><i>local backend</i>"]
+        EVAL["Eval engine<br/><i>scores a skill against cases</i>"]
+        MEM["Memory<br/><i>within a run ($.node.field), and across runs</i>"]
+    end
+
+    subgraph exts["Extensions<br/><i>skills, resource types, tools, eval sets</i>"]
+        BUNDLED["Bundled — LILA authors<br/><i>ships with the harness</i>"]
+        THIRD["Installed — extension authors<br/><i>.lila/extensions/</i>"]
+    end
+
+    CONFIG["Config — LILA users<br/><i>instances (credentials), model bindings</i>"]
+
+    exts -->|"declared via @resource / @tool"| REG
+    exts -->|"eval cases + scoring"| EVAL
+    CONFIG -->|"binds instances + models"| REG
+
+    classDef untrusted stroke-dasharray: 5 5
+    class THIRD untrusted
+```
+
+### Terminology / Concepts
+
+| Term | Explanation | 
+| ---- | ----------- |
+| Graph | A structure consisting of nodes and edges. In LILA, this is often a directed graph, meaning edges have directions. |
+| Node | One unit of work: an LLM call, a tool call, an invocation of another skill, and more. |
+| Edge | A directed link carrying an optional `when` predicate. |
+
+| Concepts | Explanation |
+| -------- | ----------- |
+| Run | One execution of a skill, with its own working memory (addressable by `$.<node>.<name>`) and history record. |
+| Skill | An execution graph. Synonymous to workflows in other harnesses. A skill has an identity, versions, declared resources, and is invocable by name. | 
+| Resource | Information that is not to be handled by the graph, e.g. credentials. Resources often have corresponding tools that utilize the resource. |
+| Tool | Named operation, may operate on resources. |
+| Extension | A unit of extensibility and distribution, which may include resources and skills. |
+
+### Node Types
+
+| ---- | ------------ | ---- |
+| Type | What it does | Args |
+| `llm` | One model call, constrained output | Prompt template, output schema |
+| `tool` | One tool call on a declared resource | `resource`, `call`, `args`. |
+| `skill.run` | Run another graph by name | `ref` contains the graph reference, or `graph:` for inline, `input`: for the arguments to the skill, and `resources` to declare the list of required resources. |

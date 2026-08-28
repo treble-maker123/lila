@@ -66,14 +66,56 @@ flowchart TB
 | -------- | ----------- |
 | Run | One execution of a skill, with its own working memory (addressable by `$.<node>.<name>`) and history record. |
 | Skill | An execution graph. Synonymous to workflows in other harnesses. A skill has an identity, versions, declared resources, and is invocable by name. | 
-| Resource | Information that is not to be handled by the graph, e.g. credentials. Resources often have corresponding tools that utilize the resource. |
+| Resource | A live handle to information living outside the graph, e.g. credentials, configuration, decryption key. Store information that should be kept out of graph state in a resource. |
 | Tool | Named operation, may operate on resources. |
 | Extension | A unit of extensibility and distribution, which may include resources and skills. |
 
 ### Node Types
 
-| ---- | ------------ | ---- |
 | Type | What it does | Args |
+| ---- | ------------ | ---- |
 | `llm` | One model call, constrained output | Prompt template, output schema |
-| `tool` | One tool call on a declared resource | `resource`, `call`, `args`. |
+| `tool` | One tool call, on a declared resource or on nothing | `resource` (omit for a pure tool), `call`, `args`. |
 | `skill.run` | Run another graph by name | `ref` contains the graph reference, or `graph:` for inline, `input`: for the arguments to the skill, and `resources` to declare the list of required resources. |
+
+### Extensions
+
+Extensions are GitHub packages with a `lila.toml` file at the root, and contains three folders - `resources`, `skills`, and `evals`.
+
+#### Resources
+
+`resources` declares the resources and tools that the skills in this extension may use.
+
+#### Skills
+
+`skills` contains the YAML files that describe the skill graphs that this extension provides.
+
+#### Evals
+
+`evals` contain the evaluations, as well as results performed against the skills in this extension. This strengthens trust in skills that are shared between many users.
+
+The responsibility for evals is as such - LILA provides the engine, and skill authors provide the datasets and wiring.
+
+#### Notes
+
+- No cross-extension references. If you need a resource or skill from another extension, fork it. This removes the need for a PyPi/NPM-like dependency solver.
+
+### Current Limitations
+
+- **Untrusted content ingested into graphs is unresolved**. Malicious websites and E-mails read into the graph could steer certain skills down undesirable (but not necessary catastrophic) directions. Currently it's the responsibility of the skill owner to design for this.
+- **Trust boundary is install**. Currently third-party Python extensions run in the same process as the main process. I am planning to sandbox this in the future.
+- **Resources ref points to a specific type owned by a specific publisher**. If there are two publishers with IMAP resources and tools, there is no mechanism (e.g. via an interface) to reconcile the two. Switching from one to another means that the graph may need editing as well. This UX gap is left for future improvements.
+
+## Random Thoughts & Long-Term Vision
+
+### What About Open-Ended Tasks?
+
+The harnesses such as OpenClaw and Hermes treat tools as atomic units and lets models operate freely over them. This optimizes for open-ended tasks because it gives the model freedom to choose how to proceed and which tools to use. 
+
+A graph-first approach is basically the opposite - we start with the constrains, then figure out how to loosen it. And this approach has the implicit thesis that the tasks benefiting from constraints are more economically valuable than the ad-hoc open-ended tasks (I'm not claiming that this is true, and this may vary across different settings and definitions of "economically valuable").
+
+Once you realize that a loop can be expressed on a graph, you see the connection between the two ends, and the question becomes: what does a a balanced design look like?
+
+### Incorporating Continual Learning
+
+Context is not memory. Bringing episodes into context does not feel scalable. Maybe there is way to RL episodic and preferential memory into the model?

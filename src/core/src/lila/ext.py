@@ -50,17 +50,25 @@ def resource[T: type](cls: T) -> T:
 
 
 def tool[T: Callable[..., object]](fn: T) -> T:
-    """Mark a function as a tool. Its first parameter names the resource it needs."""
+    """Mark a function as a tool.
+
+    A first parameter annotated with a ``@resource`` class declares the resource it
+    needs; without one the tool is pure, and every parameter is an argument.
+    """
     setattr(fn, TOOL_MARK, True)
     return fn
 
 
 @dataclass(frozen=True, slots=True)
 class Tool:
-    """One named operation over a resource type, with schemas derived from Python."""
+    """One named operation, with schemas derived from Python.
+
+    ``resource_type`` is None for a pure tool: it declares no resource, so it reaches
+    nothing outside its arguments and needs no stub to replay.
+    """
 
     name: ToolName
-    resource_type: TypeRef
+    resource_type: TypeRef | None
     args: JsonSchema  # derived from the signature, minus the resource parameter
     result: JsonSchema | None  # derived from the return annotation
     # Called as run(handle, **args). Its return is third-party and unchecked until the
@@ -119,20 +127,20 @@ def _typed_dict_schema(annotation: object, what: str) -> JsonSchema:
     return {"type": "object", "properties": properties, "required": list(hints)}
 
 
-def tool_schemas(fn: Callable[..., object]) -> tuple[object, JsonSchema, JsonSchema | None]:
+def tool_schemas(fn: Callable[..., object]) -> tuple[object | None, JsonSchema, JsonSchema | None]:
     """The resource annotation, the arg schema, and the result schema of a tool.
 
+    The resource is the first parameter when it is annotated with a ``@resource`` class,
+    and None otherwise — a pure tool, whose every parameter is an argument.
+
     Raises:
-        ExtError: the function takes no resource parameter, leaves a parameter
-            unannotated, or uses a type no schema can describe.
+        ExtError: a parameter is unannotated, or uses a type no schema can describe.
     """
     hints = get_type_hints(fn)
     parameters = list(inspect.signature(fn).parameters.values())
-    if not parameters:
-        raise ExtError(f"{fn.__name__}: a tool needs a resource as its first parameter")
-    handle, rest = parameters[0], parameters[1:]
-    if handle.name not in hints:
-        raise ExtError(f"{fn.__name__}: the resource parameter needs an annotation")
+    holder, rest = None, parameters
+    if parameters and _is_resource(hints.get(parameters[0].name)):
+        holder, rest = hints[parameters[0].name], parameters[1:]
     properties: dict[str, Json] = {}
     required: list[Json] = []
     for parameter in rest:
@@ -144,7 +152,12 @@ def tool_schemas(fn: Callable[..., object]) -> tuple[object, JsonSchema, JsonSch
     args: JsonSchema = {"type": "object", "properties": properties, "required": required}
     returns = hints.get("return")
     result = None if returns is None else json_schema(returns, fn.__name__)
-    return hints[handle.name], args, result
+    return holder, args, result
+
+
+def _is_resource(annotation: object) -> bool:
+    """Whether an annotation is a class marked ``@resource``."""
+    return isinstance(annotation, type) and getattr(annotation, RESOURCE_MARK, False)
 
 
 def config_fields(cls: type) -> list[ConfigField]:

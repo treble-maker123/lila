@@ -171,17 +171,44 @@ def test_load__raises_naming_the_file_when_a_module_does_not_import(
         load(root)
 
 
-def test_load__raises_when_a_tool_takes_a_resource_from_nowhere(
-    extension: ExtensionFactory,
-) -> None:
+def test_load__publishes_a_tool_with_no_resource_as_pure(extension: ExtensionFactory) -> None:
     # prepare
     root = extension(
         module=(
             "from lila.ext import tool\n\n\n"
             "@tool\n"
-            "def spin(widget: str, turns: int) -> str:\n"
+            "def widen(text: str, by: int) -> str:\n"
+            '    """Widen it."""\n'
+            "    return text * by\n"
+        )
+    )
+
+    # act
+    registry = load(root)
+
+    # verify
+    assert registry.tools == {}
+    assert registry.pure_tool("acme/tools@2/widen").resource_type is None
+
+
+def test_load__raises_when_a_tool_takes_a_resource_this_module_does_not_publish(
+    extension: ExtensionFactory,
+) -> None:
+    # prepare — ``del`` leaves the annotation bound to a resource the scan never sees,
+    # which is what importing another extension's resource type looks like from here.
+    root = extension(
+        module=(
+            "from dataclasses import dataclass\n\n"
+            "from lila.ext import resource, tool\n\n\n"
+            "@resource\n"
+            "@dataclass(frozen=True)\n"
+            "class Elsewhere:\n"
+            "    size: int = 1\n\n\n"
+            "@tool\n"
+            "def spin(widget: Elsewhere, turns: int) -> str:\n"
             '    """Spin it."""\n'
-            "    return widget\n"
+            '    return "spun"\n\n\n'
+            "del Elsewhere\n"
         )
     )
 

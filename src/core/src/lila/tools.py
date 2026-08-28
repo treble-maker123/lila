@@ -32,6 +32,8 @@ from lila.values import Json
 async def tool_handler(call: NodeCall) -> NodeResult:
     """Run one tool against the instance bound to the node's ``resource:``.
 
+    A node with no ``resource:`` calls a pure tool, which is passed no handle.
+
     Raises:
         RunError: the resource is unbound, no registry is bound, the tool does not
             exist, the args do not fit its schema, or the tool itself failed.
@@ -39,13 +41,19 @@ async def tool_handler(call: NodeCall) -> NodeResult:
     node = call.node
     config = node.config
     assert isinstance(config, ToolConfig)
-    instance = call.memory.resources.get(config.resource)
-    if instance is None:
-        raise RunError(f"resource {config.resource!r} is not bound", node_id=node.id)
     if call.context.registry is None:
         raise RunError("no registry bound; nothing defines tools", node_id=node.id)
+    instance = None
+    if config.resource is not None:
+        instance = call.memory.resources.get(config.resource)
+        if instance is None:
+            raise RunError(f"resource {config.resource!r} is not bound", node_id=node.id)
     try:
-        tool = call.context.registry.tool(instance.type, config.call)
+        tool = (
+            call.context.registry.pure_tool(config.call)
+            if instance is None
+            else call.context.registry.tool(instance.type, config.call)
+        )
     except ResourceError as exc:
         raise RunError(str(exc), node_id=node.id) from exc
 
@@ -55,7 +63,8 @@ async def tool_handler(call: NodeCall) -> NodeResult:
     except jsonschema.ValidationError as exc:
         raise RunError(f"args failed {config.call} schema: {exc.message}", node_id=node.id) from exc
 
-    returned = await _invoke(tool.run, instance.handle, args, node.id)
+    handle = () if instance is None else (instance.handle,)
+    returned = await _invoke(tool.run, handle, args, node.id)
     output = _as_json(returned, config.call, node.id)
     if tool.result is not None:
         try:
@@ -65,7 +74,8 @@ async def tool_handler(call: NodeCall) -> NodeResult:
                 f"{config.call} returned something its schema rejects: {exc.message}",
                 node_id=node.id,
             ) from exc
-    return NodeResult(output=output, inputs=args, resources=(config.resource,))
+    used = () if config.resource is None else (config.resource,)
+    return NodeResult(output=output, inputs=args, resources=used)
 
 
 def _as_json(value: object, call: str, node_id: str) -> Json:
@@ -84,17 +94,19 @@ def _as_json(value: object, call: str, node_id: str) -> Json:
 
 
 async def _invoke(
-    run: Callable[..., object], handle: object, args: dict[str, Json], node_id: str
+    run: Callable[..., object], handle: tuple[object, ...], args: dict[str, Json], node_id: str
 ) -> object:
     """Call a tool, off the event loop when it is blocking.
+
+    ``handle`` is the resource to lead with, or empty for a pure tool.
 
     Raises:
         RunError: the tool raised.
     """
     try:
         if inspect.iscoroutinefunction(run):
-            return await run(handle, **args)
-        return await asyncio.to_thread(run, handle, **args)
+            return await run(*handle, **args)
+        return await asyncio.to_thread(run, *handle, **args)
     except ToolError as exc:
         raise RunError(str(exc), node_id=node_id) from exc
     except TypeError as exc:

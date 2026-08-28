@@ -56,3 +56,9 @@ def list_messages(inbox: Mailbox, limit: int = 0) -> Listing:
 def join(text: Text, items: list[str], sep: str = ", ") -> str:
     """Join a list into one string — the transform escape hatch."""
     return sep.join(items)
+
+
+@tool
+def shout(phrase: str) -> str:
+    """Uppercase it — a pure tool: no resource, so nothing to bind or stub."""
+    return phrase.upper()

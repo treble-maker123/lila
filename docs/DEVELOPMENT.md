@@ -4,7 +4,7 @@
 
 Please follow the conventions in this document when developing in this repo.
 
-- After making any changes to Python files, run `make format` and `make typecheck` from the repo root.
+- After making any changes to Python files, run `make ci` from the repo root.
 - Always use absolute imports.
 - Always specify explicit types on function inputs and outputs. If there are more than one field, model it as a class. See [Typing](#typing).
 - Product code uses stdlib dataclasses, not Pydantic. Pydantic is allowed only in throw-away code off the user path — experiments, scripts, and one-off analysis.

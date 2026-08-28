@@ -338,6 +338,44 @@ def test_check__reports_a_tool_node_naming_an_undeclared_resource(
     assert rules(issues) == ["undeclared-resource"]
 
 
+def test_check__accepts_a_tool_node_with_no_resource_when_the_pure_ref_exists(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: pure
+        entry: a
+        nodes:
+          - { id: a, type: tool, call: test/fixture@1/shout, args: { phrase: "hi" } }
+        edges:
+          - { from: a, to: end }
+        """)
+
+    # act
+    issues = check(graph, registry=load(FIXTURES))
+
+    # verify
+    assert rules(issues) == []
+
+
+def test_check__reports_a_pure_ref_that_names_nothing(graph_from: GraphFactory) -> None:
+    # prepare
+    graph = graph_from("""
+        skill: pure
+        entry: a
+        nodes:
+          - { id: a, type: tool, call: test/fixture@1/whisper }
+        edges:
+          - { from: a, to: end }
+        """)
+
+    # act
+    issues = check(graph, registry=load(FIXTURES))
+
+    # verify
+    assert rules(issues) == ["unknown-tool"]
+
+
 def test_check__reports_a_call_the_resource_type_does_not_have(
     graph_from: GraphFactory,
 ) -> None:

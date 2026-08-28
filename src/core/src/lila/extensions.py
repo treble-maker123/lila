@@ -155,7 +155,7 @@ def _register_module(module: ModuleType, manifest: Manifest, registry: Registry)
     """Find the marked resource classes and tool functions in one module.
 
     Raises:
-        ExtensionError: a tool's first parameter is not a resource in this extension.
+        ExtensionError: a tool names a resource that is not declared in this extension.
         ExtError: a schema cannot be derived.
     """
     types_by_class: dict[type, TypeRef] = {}
@@ -167,7 +167,10 @@ def _register_module(module: ModuleType, manifest: Manifest, registry: Registry)
     for name, value in vars(module).items():
         if callable(value) and getattr(value, TOOL_MARK, False):
             built = _build_tool(name, value, types_by_class, manifest)
-            registry.tools[(built.resource_type, built.name)] = built
+            if built.resource_type is None:
+                registry.pure[manifest.member(name)] = built
+            else:
+                registry.tools[(built.resource_type, built.name)] = built
 
 
 def _build_tool(
@@ -176,15 +179,18 @@ def _build_tool(
     types_by_class: dict[type, TypeRef],
     manifest: Manifest,
 ) -> Tool:
-    """Derive one tool's schemas and the resource type its first parameter names.
+    """Derive one tool's schemas and the resource type it declares, if any.
+
+    A tool with no resource parameter is pure: ``resource_type`` is None, and it is
+    published under its own member ref rather than scoped to a type.
 
     Raises:
-        ExtensionError: its first parameter is not a resource declared here.
+        ExtensionError: it names a resource that is not declared here.
         ExtError: a schema cannot be derived.
     """
     holder, args, result = tool_schemas(fn)
     ref = types_by_class.get(holder) if isinstance(holder, type) else None
-    if ref is None:
+    if holder is not None and ref is None:
         raise ExtensionError(
             f"{manifest.name}: tool {name!r} takes {holder!r}, which is not a resource here"
         )

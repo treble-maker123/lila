@@ -47,6 +47,9 @@ class Registry:
 
     types: dict[TypeRef, type] = field(default_factory=dict)
     tools: dict[tuple[TypeRef, ToolName], Tool] = field(default_factory=dict)
+    # Pure tools declare no resource, so nothing scopes them but the extension that
+    # published them: they are addressed by full member ref, like a type or a skill.
+    pure: dict[TypeRef, Tool] = field(default_factory=dict)
     instances: dict[InstanceName, Instance] = field(default_factory=dict)
     skills: dict[SkillRef, FilePath] = field(default_factory=dict)
 
@@ -75,6 +78,17 @@ class Registry:
         if found is None:
             known = sorted(name for ref, name in self.tools if ref == type_ref)
             raise ResourceError(f"{type_ref} has no tool {call!r}; it has {known}")
+        return found
+
+    def pure_tool(self, ref: TypeRef) -> Tool:
+        """The pure tool published under a full member ref.
+
+        Raises:
+            ResourceError: nothing is installed under that ref.
+        """
+        found = self.pure.get(ref)
+        if found is None:
+            raise ResourceError(f"no pure tool {ref!r}; installed: {sorted(self.pure)}")
         return found
 
     def tools_of(self, type_ref: TypeRef) -> dict[ToolName, Tool]:

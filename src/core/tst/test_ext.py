@@ -114,15 +114,32 @@ def test_tool_schemas__raises_when_a_parameter_is_unannotated() -> None:
         tool_schemas(undecorated)
 
 
-def test_tool_schemas__raises_when_there_is_no_resource_parameter() -> None:
+def test_tool_schemas__reports_no_resource_when_there_is_no_resource_parameter() -> None:
     # prepare
     def no_resource() -> str:
         """Takes nothing."""
         return ""
 
-    # act / verify
-    with pytest.raises(ExtError, match="first parameter"):
-        tool_schemas(no_resource)
+    # act
+    holder, args, _ = tool_schemas(no_resource)
+
+    # verify
+    assert holder is None
+    assert args == {"type": "object", "properties": {}, "required": []}
+
+
+def test_tool_schemas__treats_an_unmarked_first_parameter_as_an_argument() -> None:
+    # prepare
+    def widen(text: str, by: int) -> str:
+        """Pure — ``str`` is no resource, so both parameters are arguments."""
+        return text * by
+
+    # act
+    holder, args, _ = tool_schemas(widen)
+
+    # verify
+    assert holder is None
+    assert args["properties"] == {"text": {"type": "string"}, "by": {"type": "integer"}}
 
 
 # endregion

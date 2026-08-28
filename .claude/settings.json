@@ -4,12 +4,14 @@
       "Bash(cd:*)",
       "Bash(awk:*)",
       "Bash(grep:*)",
+      "Bash(tail:*)",
       "Bash(make format:*)",
       "Bash(make typecheck:*)",
       "Bash(make update:*)",
       "Bash(make run-smoke *)",
       "Bash(make -C src/core test-unit)",
-      "Bash(make ci *)"
+      "Bash(make ci *)",
+      "Bash(make e2e *)"
     ]
   }
 }

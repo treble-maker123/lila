@@ -62,6 +62,9 @@ class _Context:
         """The schema a node's output must match: its ``out:``, or its tool's result."""
         if not isinstance(node.config, ToolConfig) or self.registry is None:
             return node.out
+        if node.config.resource is None:
+            tool = self.registry.pure.get(node.config.call)
+            return tool.result if tool is not None else None
         type_ref = self.graph.resources.get(node.config.resource)
         if type_ref is None:
             return None
@@ -172,11 +175,21 @@ def _check_resources(context: _Context, bindings: dict[ResourceName, InstanceNam
 
 
 def _check_tools(context: _Context) -> None:
-    """Every tool node names a declared resource, and a tool its type really has."""
+    """Every tool node names a declared resource, and a tool its type really has.
+
+    A node with no ``resource:`` names a pure tool, which is scoped by its own ref.
+    """
     graph = context.graph
     for node in graph.nodes:
         config = node.config
         if not isinstance(config, ToolConfig):
+            continue
+        if config.resource is None:
+            if context.registry is not None and config.call not in context.registry.pure:
+                known = sorted(context.registry.pure)
+                context.report(
+                    "unknown-tool", f"no pure tool {config.call!r}; installed: {known}", node.id
+                )
             continue
         type_ref = graph.resources.get(config.resource)
         if type_ref is None:

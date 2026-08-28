@@ -703,6 +703,7 @@ async def test_run__records_resources_by_name_when_a_node_uses_one(
     async def handler(call: NodeCall) -> NodeResult:
         config = call.node.config
         assert isinstance(config, ToolConfig)
+        assert config.resource is not None
         return NodeResult(output={}, resources=(config.resource,))
 
     context = RunContext(handlers={"tool": handler})
@@ -1108,6 +1109,7 @@ async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_reso
     async def tool(call: NodeCall) -> NodeResult:
         config = call.node.config
         assert isinstance(config, ToolConfig)
+        assert config.resource is not None
         handle = call.memory.resources.get(config.resource)
         assert handle is not None
         return NodeResult(output={"instance": handle.name})

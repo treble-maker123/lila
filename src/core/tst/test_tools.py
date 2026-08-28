@@ -63,6 +63,25 @@ return:
 """
 
 
+SHOUT_GRAPH = """
+skill: shouting
+entry: loud
+input:
+  type: object
+  properties:
+    phrase: { type: string }
+nodes:
+  - id: loud
+    type: tool
+    call: test/fixture@1/shout
+    args: { phrase: $.input.phrase }
+edges:
+  - { from: loud, to: end }
+return:
+  text: $.loud
+"""
+
+
 @pytest.fixture
 def graph_from() -> GraphFactory:
     def build(source: str) -> Graph:
@@ -114,6 +133,31 @@ async def test_tool_handler__calls_the_tool_with_rendered_args(
 
     # verify
     assert result.output == {"subject": "subject 7"}
+
+
+async def test_tool_handler__calls_a_pure_tool_with_no_resource_bound(
+    graph_from: GraphFactory, context: RunContext
+) -> None:
+    # prepare — no resources: block, no bindings
+    graph = graph_from(SHOUT_GRAPH)
+
+    # act
+    result = await run(graph, {"phrase": "hello"}, context, {})
+
+    # verify
+    assert result.output == {"text": "HELLO"}
+    assert result.record.nodes[0].resources == ()
+
+
+async def test_tool_handler__raises_when_a_pure_ref_names_nothing(
+    graph_from: GraphFactory, context: RunContext
+) -> None:
+    # prepare
+    graph = graph_from(SHOUT_GRAPH.replace("test/fixture@1/shout", "test/fixture@1/whisper"))
+
+    # act / verify
+    with pytest.raises(RunError, match="no pure tool"):
+        await run(graph, {"phrase": "hello"}, context, {})
 
 
 async def test_tool_handler__records_the_resource_name_not_the_handle(

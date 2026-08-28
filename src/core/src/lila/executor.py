@@ -217,14 +217,15 @@ class LlmConfig:
 
 @dataclass(frozen=True, slots=True)
 class ToolConfig:
-    """A ``tool`` node: one tool call on a resource the graph declared.
+    """A ``tool`` node: one tool call, on a resource the graph declared or on nothing.
 
-    Three coordinates and no fourth: transport lives inside the tool's implementation,
-    so an HTTP call, an MCP call, and a pure transform are all this node.
+    Transport lives inside the tool's implementation, so an HTTP call, an MCP call, and
+    a pure transform are all this node. Omitting ``resource:`` selects a pure tool, which
+    reaches nothing outside its arguments; ``call:`` is then a full member ref.
     """
 
-    resource: ResourceName  # the resource to call, declared in the graph's ``resources:``
-    call: ToolName  # a tool on that resource's type
+    resource: ResourceName | None  # declared in the graph's ``resources:``; None is pure
+    call: ToolName  # a tool on that resource's type, or a pure tool's full member ref
     args: dict[ArgName, Compiled] = field(default_factory=dict)  # paths resolve per call
 
 
@@ -451,15 +452,15 @@ def _load_llm(raw: dict[str, Yaml], node_id: NodeId) -> LlmConfig:
 
 
 def _load_tool(raw: dict[str, Yaml], node_id: NodeId) -> ToolConfig:
-    """Load a ``tool`` node's ``resource:``/``call:``/``args:`` triple.
+    """Load a ``tool`` node's ``resource:``/``call:``/``args:``. ``resource:`` is optional.
 
     Raises:
-        GraphError: resource:/call: missing or not strings, args: is not a mapping,
-            or the node declares an ``out:`` the tool already declares.
+        GraphError: call: missing or not a string, resource: present but not a string,
+            args: is not a mapping, or the node declares an ``out:`` the tool declares.
     """
     resource, call = raw.get("resource"), raw.get("call")
-    if not isinstance(resource, str):
-        raise GraphError("tool node needs resource: naming a declared resource", node_id=node_id)
+    if resource is not None and not isinstance(resource, str):
+        raise GraphError("tool node's resource: must name a declared resource", node_id=node_id)
     if not isinstance(call, str):
         raise GraphError("tool node needs call:", node_id=node_id)
     if raw.get("out") is not None:

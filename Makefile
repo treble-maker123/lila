@@ -1,4 +1,4 @@
-.PHONY: setup update upgrade format format-check typecheck dev ci test test-unit test-integ
+.PHONY: setup update upgrade format format-check typecheck dev ci test test-unit test-integ e2e
 
 # Every package under src/ that carries its own Makefile.
 PACKAGES := $(patsubst %/,%,$(dir $(wildcard src/*/Makefile)))
@@ -36,3 +36,13 @@ ci: format-check typecheck test
 # Containerised runs stay package-local: see `make -C src/core docker-test`.
 test test-unit test-integ:
 	@for pkg in $(PACKAGES); do $(MAKE) -C $$pkg $@ || exit 1; done
+
+# The proof: one skill, against the real mailbox and model that .lila/config.toml names.
+# Read-only. Needs ollama serving the configured model, which must already be pulled.
+# The record is the artifact worth reading afterwards — the digest itself goes to stdout.
+E2E_SKILL := test/email@1/digest
+E2E_RECORD := .lila/records/digest.json
+
+e2e:
+	@mkdir -p $(dir $(E2E_RECORD))
+	uv run --no-sync lila run $(E2E_SKILL) --record $(E2E_RECORD)

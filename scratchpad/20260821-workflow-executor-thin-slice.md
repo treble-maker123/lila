@@ -1,7 +1,8 @@
 # Workflow Executor Thin-Slice
 
 **Status**: on-going — T1–T8 implemented and unit-tested. Remaining: proof against a real
-inbox, T9 (extensions), stubs/replay. P1–P7 unreviewed; P8/P9 agreed but unimplemented, so
+inbox, T9 (extensions), T10 (Discord) and T11 (scheduler). P10 failure semantics is designed
+and deferred to the TODOs, as is stubs/replay. P1–P7 unreviewed; P8/P9 agreed but unimplemented, so
 the code still uses the pre-P8 shape (`mailbox@1`, `uses:`/`call:`).
 
 ## Goal
@@ -282,10 +283,108 @@ has this property, so treat it as a standing property to track, not a bug to clo
 work: provenance-tagging untrusted values in memory so the record shows what reached a
 prompt, and sanitization at the tool boundary. Out of scope for the slice.
 
+### P10 — Failure, and how it reaches a user
+
+**Every message addressed to a user is authored by a graph.** The harness transports it. It
+never writes it. That is the transparency goal applied to failure.
+
+Two things follow. A failure that needs a user's attention must be caught by a graph. And
+there is no harness-side notifier — one would post to a channel no `resources:` block
+declared, which is the ambient authority this design exists to remove.
+
+The inverse does not hold. A graph is not only user interaction.
+
+`lila run` printing to a terminal is scaffolding. It gets discarded, and nothing is designed
+around it.
+
+**Catch is skill-level, not node-level.** Per-node catch edges were dropped. Error handling is
+targeted, so per-node predicates smear it across the file.
+
+A graph declares one `catch:` node beside `entry:`. Any uncaught node error routes there.
+
+Discrimination does not disappear, it relocates. Inside the handler, ordinary `when:` edges
+route on `$.error.type`, top-down like every other edge. Same expressiveness, one concept, one
+place to read.
+
+`$.error` binds only inside the catch subgraph. Same scoping rule as `$.each` in a map node;
+the static check rejects it elsewhere.
+
+**The error value is core's vocabulary.** `type` is a closed enum, so `when:` stays
+typecheckable and a handler routes on a value rather than a string match.
+
+| Field | |
+|---|---|
+| `type` | `resource_unavailable` \| `invalid_output` \| `tool_error` \| `model_error` \| `timeout` \| `internal` |
+| `node` | failing node id, qualified through nesting |
+| `message` | one human-readable line |
+
+The stacktrace goes to the record, never to memory. Memory is what reaches prompts.
+
+Open: whether the failing node's inputs join `$.error` for a handler to reason over. They are
+the best diagnostic and the likeliest home for attacker-controlled content. The standing
+untrusted-content problem, in a new place.
+
+**`end` carries a state: success or failed.** Success validates `return:` against the output
+schema. Failed emits the error value.
+
+That makes swallowing visible. A skill that catches, reports, then exits failed shows both
+facts in the file.
+
+Propagation needs no second mechanism. The caller's `skill.run` node sees a uniform error
+either way, and the caller's own `catch:` applies.
+
+It also gives the harness a real terminal signal. Record state, exit code, and "fire the error
+skill" all read one field, instead of inferring from an escaping exception.
+
+Static check gains a cheap rule. A catch handler whose only reachable exit is success `end` is
+a swallowed failure.
+
+Open: whether a failed `end` may also project memory. Error-only is simpler, and is the start.
+
+**Two tiers, then a floor.** The interaction graph is not one of the tiers. It is not a skill
+like any other — it is the core, the way V8's event loop is the core. It is built on the same
+graph machinery, and later hardened against the edge cases a skill is allowed to fail on. If
+it fails, the runtime has failed. That is a system error, not a case to design catch semantics
+for.
+
+| Scope | Handled by |
+|---|---|
+| Node error | the graph's `catch:` |
+| Skill error | the caller's `skill.run` node error → the caller's `catch:` |
+| Everything left | the floor: persist the record, harness moves on |
+
+Two guards. An error inside a catch path does not re-enter catch. A failing error skill is not
+itself handled or retried. One level, then the floor.
+
+**Resources resolve lazily, at first use.** Eager resolution at run start puts the most common
+real failure — an expired credential — before the entry node, where no graph can catch it.
+Lazy resolution makes it an ordinary `resource_unavailable` node error.
+
+Assume the path fails. No expiry pre-checks in the slice: a credential valid at check time can
+still be dead at call time.
+
+**Reaching a user is a routing problem, not a notification one.** An expired credential needs
+a human to re-authenticate. The failing skill cannot ask; it may have no user attached. So the
+error has to reach the interaction graph, the only graph that can.
+
+| | Shape | For |
+|---|---|---|
+| Push | the schedule entry names an error skill; the harness starts a second run of it with the error as input | urgent. Content graph-authored, channel declared in that skill's `resources:` |
+| Pull | uncaught errors append to a tier the interaction graph reads on the next user turn | everything else. Needs no channel resource, degrades when a channel is down |
+
+Pull is the more interesting half. Re-auth becomes a conversation rather than an alert, and it
+lands in the session and long-term tiers already sketched.
+
+**Repair needs no self-recursion.** A wrapper skill runs the target, catches, reads `$.error`
+in an `llm` node, runs a repair skill, then runs the target again.
+
+The wrapper calls the target twice. Nothing calls itself, so P5's claim holds. Attempts are
+bounded by the wrapper's own execution history, not a retry counter.
+
 ## File format
 
 Highest user touch point and the hardest thing to change later. A graph is a flat file —
-metadata, `resources`, `input`/`output`, `entry`, `nodes`, `edges`, `return` — in YAML (JSON
+metadata, `resources`, `input`/`output`, `entry`, `catch`, `nodes`, `edges`, `return` — in YAML (JSON
 is the same document).
 
 | Choice | Consequence |
@@ -295,6 +394,8 @@ is the same document).
 | A `tool` node has no `out:` | the tool declares its result schema; the graph can't disagree with it |
 | Edges hold `when:`, evaluated top-down, `true` as the fallback | routing reads as a list; no condition nodes — but file order is semantics (P2) |
 | `end` is a reserved target, `return:` projects memory to output | a graph's contract is visible without reading its nodes |
+| `end` carries success or failed | a run has one terminal signal; a swallowed failure is visible in the file (P10) |
+| `catch:` names one node; uncaught node errors route there | error handling is one place, not a predicate on every node |
 | A tool node has exactly three coordinates — type, resource, call | one shape to learn, and the record logs the same triple |
 | `resource:` names a declared resource; `model:` names an alias | no endpoint, credential, or weight path in a shared file |
 
@@ -460,6 +561,7 @@ Everything lands in `src/core/src/lila/` unless noted.
 | `model.py` | `Model` protocol + ollama backend |
 | `values.py` | `Json` / `Yaml` / `JsonSchema` vocabulary |
 | `config.py` | local install config — instances, bindings, secrets by env var, model alias |
+| `schedule.py` | schedule table, cron expressions, due-time arithmetic, the tick loop |
 | `commands.py` | what each command does, in plain values → exit code |
 | `main.py` | argparse only — the one module with no tests, so it holds no logic |
 | `.lila/` | the local install: `config.toml` + `extensions/`, untracked, read at run time |
@@ -475,7 +577,13 @@ Everything lands in `src/core/src/lila/` unless noted.
 | T7 | Static check | dry-run validation of a graph | T1, T2, T6 | done |
 | T8 | E-mail skill + `lila run` | the proof | T5–T7 | built, unproven against a real inbox |
 | T9 | Extensions (P8, P9) | `ext.py`, loader, e-mail moved out of core | T6 | designed, not built |
+| T10 | Discord channel | an extension — resource + `post_message` tool | T9 | new |
+| T11 | Scheduler | `schedule.py`, cron-triggered runs, `lila schedule` | T8, T10 | new |
 | — | *TODO* stubs + replay | run a graph with no backend | T3, T4 | punted, TODO in-code |
+| — | *TODO* failure semantics | P10 in code | T4 | designed, deferred |
+
+P10 is designed but not scheduled. Until it lands, a scheduled run that fails is silent past
+the record, and T11 has no terminal state to read.
 
 ### T1 — Graph model and loader → `executor.py`
 
@@ -603,8 +711,89 @@ Proof against a real (isolated) inbox is the remaining step, and it is where the
 its first real feedback — what the record misses, where the schema fights the model, whether
 IMAP's grain hurts.
 
+### T10 — Discord channel → extension
+
+A channel is a resource. Posting is a tool over it. `resource: alerts, call: post_message`,
+and the executor never learns what Discord is.
+
+No `notify` node type. A node type per transport is the family P1 rejected.
+
+The authority story is unchanged. A skill that can post to a channel says so in `resources:`,
+bound at install, logged in the record. Nothing in core knows a channel exists.
+
+**Outbound only.** There is already a bot app and token (Hermes), so posting is
+`POST /channels/{id}/messages` with `Authorization: Bot …`. That is `urllib.request` and
+nothing else, so it stays stdlib-only and in-process under P9.
+
+Receiving is where that stops. The gateway is a websocket, not request/response, and not
+stdlib. Inbound Discord is the MCP boundary's first real customer, not a bigger version of
+this extension. Outbound-only is the seam, not a shortcut.
+
+The first consumer is a small notification skill: `llm` shapes the message, `tool` posts it.
+A skill wrapping one tool call is ceremony. One that *shapes* the message is not, and it is
+what the scheduler composes instead of hardcoding.
+
+Open: message shape. Discord's 2000-character cap is the one constraint worth designing to.
+
+### T11 — Scheduler → `schedule.py`
+
+Cron is the vocabulary. Five fields, everyone knows them, and the expression is what a user
+edits.
+
+Own the tick loop rather than write crontab lines. System cron cannot express *don't start if
+the last run is still going*. It has no catch-up policy after a laptop sleeps. It gives no run
+record. And it wants the install path (`.lila/`, `$LILA_HOME`) baked into a line that silently
+rots.
+
+A schedule entry is a saved invocation: skill ref, `input:`, the cron expression, and the
+error skill to run if the run ends failed. It is config, not a graph —
+`.lila/schedules.toml`, beside `config.toml`, so scheduling never becomes a node type either.
+
+The scheduler is the first caller with no user attached. That is what makes P10 load-bearing
+here, and P10 is deferred — so the error skill is the one part of an entry that does nothing
+yet.
+
+Once P10 lands, the scheduler reads one field: the run's terminal state. It does one thing
+with a failure — start the entry's error skill with the error as input, once, unhandled. That
+is P10's push half. The pull half needs no scheduler support; the failure is already in the
+record.
+
+| Piece | Is |
+|---|---|
+| `lila schedule list` | entries, last run, next due |
+| `lila schedule run <name>` | fire one now, ignoring the clock — the debug path |
+| `lila schedule tick` | run everything due once, then exit — cron-safe, testable, no daemon |
+| `lila schedule daemon` | `tick` in a sleep loop; the same code path |
+
+`tick`-then-`daemon` keeps the scheduling logic pure. Due time is a function of (expression,
+last run, now), tested with no clock and no sleep.
+
+Open: misfire policy after a long sleep — skip, catch up once, or catch up all. And overlap —
+skip or queue. Both want a default before they want a setting.
+
+Cron parsing is ~60 lines of stdlib. The ranges-and-steps subset is enough; a dependency is
+not worth it.
+
 ### TODO — stubs and replay
 
 `load_stubs(path) -> StubSet`, a handler wrapper that intercepts by node id, with the
 semantics under File format. Replay is `StubSet.from_record(record)` — same type, no second
 mechanism.
+
+### TODO — failure semantics → `executor.py`, `verification.py`
+
+P10 in code. Four pieces, all core, no new module.
+
+| Piece | Is |
+|---|---|
+| Error value | a frozen dataclass with a closed `type` enum; the record additionally holds the stacktrace |
+| `catch:` | one graph-level field naming a node; the run loop routes an uncaught node error there and binds `$.error` for that subgraph |
+| `end` state | success validates `return:`; failed emits the error value. `RunResult` carries the state |
+| Lazy resources | resolve on first use inside a node, not at run start, so a dead credential is a catchable node error |
+
+Three static check additions. `$.error` only inside the catch subgraph. `catch:` names a real
+node. A warning when a catch subgraph's only reachable exit is a success `end`.
+
+Nesting gives skill-level propagation with no extra code: an uncaught error in a child run
+surfaces as the `skill.run` node's error. An error raised inside a catch path is not caught
+again. It ends the run at the floor.

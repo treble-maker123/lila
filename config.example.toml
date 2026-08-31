@@ -77,6 +77,19 @@ username = "you@gmail.com"
 folder = "INBOX"
 secrets = { password = "LILA_INBOX_PASSWORD" }
 
+# test/discord@1/channel settings: channel_id, api_base (default the v10 API),
+#                                  token (via secrets)
+#
+# Outbound only — the bot posts, it does not read. Create an application at
+# discord.com/developers, add a bot, copy its token, invite it to the server with the
+# Send Messages permission, then turn on developer mode in Discord and right-click the
+# channel → Copy Channel ID.
+
+[resources.discord-alerts]
+type = "test/discord@1/channel"
+channel_id = "000000000000000000"
+secrets = { token = "LILA_DISCORD_TOKEN" }
+
 
 # --- skills -------------------------------------------------------------------------
 # A skill declares the resources it needs (`resources: inbox: test/email@1/imap`) and
@@ -89,3 +102,6 @@ secrets = { password = "LILA_INBOX_PASSWORD" }
 
 [skills.email-digest.bindings]
 inbox = "gmail-personal"
+
+[skills.discord-notify.bindings]
+alerts = "discord-alerts"

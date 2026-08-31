@@ -1,7 +1,7 @@
 # Workflow Executor Thin-Slice
 
-**Status**: on-going — T1–T8 implemented and unit-tested. Remaining: proof against a real
-inbox, T9 (extensions), T10 (Discord) and T11 (scheduler). P10 failure semantics is designed
+**Status**: on-going — T1–T10 implemented and unit-tested. Remaining: proof against a real
+inbox, a real Discord post (the config holds a placeholder token), and T11 (scheduler). P10 failure semantics is designed
 and deferred to the TODOs, as is stubs/replay. P1–P7 unreviewed; P8/P9 agreed but unimplemented, so
 the code still uses the pre-P8 shape (`mailbox@1`, `uses:`/`call:`).
 
@@ -576,8 +576,8 @@ Everything lands in `src/core/src/lila/` unless noted.
 | T6 | Resources + tool node | declared resources, bindings, IMAP mailbox read | T4 | done |
 | T7 | Static check | dry-run validation of a graph | T1, T2, T6 | done |
 | T8 | E-mail skill + `lila run` | the proof | T5–T7 | built, unproven against a real inbox |
-| T9 | Extensions (P8, P9) | `ext.py`, loader, e-mail moved out of core | T6 | designed, not built |
-| T10 | Discord channel | an extension — resource + `post_message` tool | T9 | new |
+| T9 | Extensions (P8, P9) | `ext.py`, loader, e-mail moved out of core | T6 | done |
+| T10 | Discord channel | an extension — resource + `post_message` tool | T9 | built, unproven against a real channel |
 | T11 | Scheduler | `schedule.py`, cron-triggered runs, `lila schedule` | T8, T10 | new |
 | — | *TODO* stubs + replay | run a graph with no backend | T3, T4 | punted, TODO in-code |
 | — | *TODO* failure semantics | P10 in code | T4 | designed, deferred |
@@ -734,6 +734,13 @@ A skill wrapping one tool call is ceremony. One that *shapes* the message is not
 what the scheduler composes instead of hardcoding.
 
 Open: message shape. Discord's 2000-character cap is the one constraint worth designing to.
+
+**Built** as `.lila/extensions/test-discord/`: `test/discord@1/channel` (token, channel_id,
+api_base) plus `post_message`, and the `discord-notify` skill — `llm` shapes the note,
+`tool` posts it. Over-length content is truncated with an ellipsis and the result says so,
+so a notification always lands; splitting into N posts is noted in the code as later work,
+since it turns one call into N with partial-failure semantics. `lila call` proves the path
+end to end (a placeholder token gets a clean `401` as a `ToolError`, not a traceback).
 
 ### T11 — Scheduler → `schedule.py`
 

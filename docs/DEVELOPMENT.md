@@ -77,3 +77,17 @@ Retarget the integration tests with `LILA_OLLAMA_HOST` and `LILA_OLLAMA_MODEL`:
 ```sh
 make -C src/core test-integ LILA_OLLAMA_MODEL=qwen3:8b
 ```
+
+### Manual testing
+
+Runs a skill against what `.lila/config.toml` names, so it needs real credentials and a
+running ollama. `--input` and `--arg` values are text; `--input-json` takes structure.
+
+```sh
+uv run lila check .lila/extensions/test-email/skills/digest.yaml   # static check, no run
+uv run lila run test/email@1/digest --record .lila/records/digest.json   # digest 10 unread; read-only
+uv run lila run test/discord@1/notify --input note="deploy is green"    # shape a note, post it
+uv run lila call gmail-personal.list_messages --arg unread=true --arg limit=5
+uv run lila call gmail-personal.get_message --arg id=1234
+uv run lila call discord-alerts.post_message --arg content="hello from lila"
+```

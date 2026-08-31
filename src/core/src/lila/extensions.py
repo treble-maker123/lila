@@ -1,7 +1,9 @@
 """Discovery and loading of extensions — the only place core learns what exists.
 
-An extension is a directory with a ``lila.toml`` manifest beside ``resources/`` and
-``skills/``. Install is a git clone into ``.lila/extensions/``; this module finds those
+An extension is a directory with a ``lila.toml`` manifest beside ``code/`` and
+``skills/``: what it implements in Python, and what it declares as graphs. ``code/``
+holds resource types and the tools over them, plus tools that need no resource at all.
+Install is a git clone into ``.lila/extensions/``; this module finds those
 first, then the bundled ones, and turns both into a Registry. Loading executes
 third-party Python in-process — install is the trust boundary (P9).
 """
@@ -22,7 +24,7 @@ from lila.resources import Registry, SkillRef
 from lila.values import Json
 
 MANIFEST_NAME = "lila.toml"
-RESOURCES_DIR = "resources"
+CODE_DIR = "code"
 SKILLS_DIR = "skills"
 SKILL_SUFFIXES = (".yaml", ".yml")
 
@@ -123,7 +125,7 @@ def install(manifest: Manifest, registry: Registry) -> None:
     for required in manifest.requires:
         if not any(ref.startswith(f"{required}@") for ref in registry.types):
             raise ExtensionError(f"{manifest.name} requires {required}, which is not installed")
-    for module_path in sorted((manifest.root / RESOURCES_DIR).glob("*.py")):
+    for module_path in sorted((manifest.root / CODE_DIR).glob("*.py")):
         _register_module(_import(manifest, module_path), manifest, registry)
     skills = manifest.root / SKILLS_DIR
     for skill_path in sorted(skills.iterdir()) if skills.is_dir() else []:

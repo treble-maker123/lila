@@ -5,7 +5,7 @@
 #   .lila/
 #     config.toml
 #     extensions/lila-email/lila.toml
-#     extensions/lila-email/resources/imap.py
+#     extensions/lila-email/code/imap.py
 #     extensions/lila-email/skills/digest.yaml
 #
 # An extension is the unit of distribution: a resource type, its tools, and the skills

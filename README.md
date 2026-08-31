@@ -80,11 +80,11 @@ flowchart TB
 
 ### Extensions
 
-Extensions are GitHub packages with a `lila.toml` file at the root, and contains three folders - `resources`, `skills`, and `evals`.
+Extensions are GitHub packages with a `lila.toml` file at the root, and contains three folders - `code`, `skills`, and `evals`. `code` is what the extension implements; `skills` and `evals` are what it declares.
 
-#### Resources
+#### Code
 
-`resources` declares the resources and tools that the skills in this extension may use.
+`code` declares the resource types, and the tools that the skills in this extension may use. A tool that takes a resource as its first parameter operates on it; a tool that takes none is *pure* - it reaches nothing outside its arguments, needs no binding, and needs no stub to replay.
 
 #### Skills
 

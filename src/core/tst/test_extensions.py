@@ -45,10 +45,10 @@ def extension(tmp_path: FilePath) -> ExtensionFactory:
     def build(manifest: str = MANIFEST, module: str | None = MODULE, skill: str = "") -> FilePath:
         root = tmp_path / "extensions"
         directory = root / "an-extension"
-        (directory / "resources").mkdir(parents=True)
+        (directory / "code").mkdir(parents=True)
         (directory / "lila.toml").write_text(manifest)
         if module is not None:
-            (directory / "resources" / "widget.py").write_text(module)
+            (directory / "code" / "widget.py").write_text(module)
         if skill:
             (directory / "skills").mkdir()
             (directory / "skills" / "spin.yaml").write_text(skill)

@@ -20,6 +20,7 @@ type ResourceName = str  # what a graph calls a resource it needs, e.g. ``inbox`
 type InstanceName = str  # a configured instance, e.g. ``gmail-personal``
 type ArgName = str  # key in a call's args mapping
 type SkillRef = str  # ``<namespace>/<name>``, or a path
+type SkillName = str  # what an install calls one instantiation of a skill
 
 # endregion
 

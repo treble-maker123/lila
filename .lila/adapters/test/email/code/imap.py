@@ -45,7 +45,9 @@ class Imap:
     folder: str = "INBOX"
 
     @contextmanager
-    def session(self, folder: str | None = None, readonly: bool = True) -> Iterator[imaplib.IMAP4_SSL]:
+    def session(
+        self, folder: str | None = None, readonly: bool = True
+    ) -> Iterator[imaplib.IMAP4_SSL]:
         """Open a TLS session, log in, select a folder, and close on exit.
 
         Raises:

@@ -16,7 +16,14 @@ from pathlib import Path as FilePath
 from lila.executor import ModelAlias
 from lila.ext import ConfigField, TypeRef, config_fields
 from lila.model import DEFAULT_OLLAMA_HOST, Model, OllamaModel
-from lila.resources import Instance, InstanceName, Registry, ResourceName, SkillRef
+from lila.resources import (
+    Instance,
+    InstanceName,
+    Registry,
+    ResourceName,
+    SkillName,
+    SkillRef,
+)
 
 # region names
 
@@ -63,19 +70,27 @@ class ResourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class SkillConfig:
-    """Which instance fills each resource name a skill declares."""
+    """One instantiation: a skill this install runs, and which instance fills each of
+    its resource names.
 
-    name: SkillRef
+    A skill is a template; the install stamps out copies. The key is a name this install
+    owns, so renaming the skill upstream cannot silently unbind it — that shows up as an
+    unresolvable ``source`` instead.
+    """
+
+    name: SkillName  # the run target
+    source: SkillRef  # the skill it instantiates
+    enabled: bool = True  # nothing runs skills on its own yet, so this gates nothing
     bindings: dict[ResourceName, InstanceName] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class InstallConfig:
-    """The whole local install: models, resource instances, per-skill bindings."""
+    """The whole local install: models, resource instances, instantiated skills."""
 
     models: dict[ModelAlias, ModelConfig] = field(default_factory=dict)
     resources: dict[InstanceName, ResourceConfig] = field(default_factory=dict)
-    skills: dict[SkillRef, SkillConfig] = field(default_factory=dict)
+    skills: dict[SkillName, SkillConfig] = field(default_factory=dict)
 
 
 # region loading
@@ -133,6 +148,35 @@ def _settings(raw: dict[str, object], what: str) -> dict[SettingName, Setting]:
     return settings
 
 
+def _flag(raw: dict[str, object], key: str, what: str, default: bool) -> bool:
+    """One boolean field.
+
+    Raises:
+        ConfigError: it is present but not a boolean.
+    """
+    value = raw.get(key, default)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{what}.{key} must be a boolean")
+    return value
+
+
+def _bindings(raw: dict[str, object], what: str) -> dict[ResourceName, InstanceName]:
+    """The ``resources`` sub-table of one instantiation: local name -> instance.
+
+    Dotted keys inside the ``[[skill]]`` block, so a binding cannot drift onto a
+    neighboring array element the way a ``[skill.<name>]`` header can.
+
+    Raises:
+        ConfigError: ``resources`` or one of its entries is not a table, or an entry
+            names no instance.
+    """
+    bindings: dict[ResourceName, InstanceName] = {}
+    for key, value in _table(raw.get("resources", {}), f"{what}.resources").items():
+        table = _table(value, f"{what}.resources.{key}")
+        bindings[key] = _text(table, "instance", f"{what}.resources.{key}")
+    return bindings
+
+
 def _secrets(raw: dict[str, object], what: str) -> dict[SettingName, EnvVarName]:
     """The ``secrets`` sub-table: setting name -> env var name."""
     if "secrets" not in raw:
@@ -168,13 +212,21 @@ def parse_config(raw: dict[str, object]) -> InstallConfig:
             secrets=_secrets(table, f"resources.{name}"),
         )
 
-    skills: dict[SkillRef, SkillConfig] = {}
-    for name, value in _table(raw.get("skills", {}), "skills").items():
-        table = _table(value, f"skills.{name}")
-        declared = _table(table.get("bindings", {}), f"skills.{name}.bindings")
+    skills: dict[SkillName, SkillConfig] = {}
+    declared = raw.get("skill", [])
+    if not isinstance(declared, list):
+        raise ConfigError("skill must be an array of tables — [[skill]], not [skill]")
+    for index, value in enumerate(declared):
+        table = _table(value, f"skill[{index}]")
+        name = _text(table, "name", f"skill[{index}]")
+        what = f"skill.{name}"
+        if name in skills:
+            raise ConfigError(f"{what}: two instantiations claim this name")
         skills[name] = SkillConfig(
             name=name,
-            bindings={key: _text(declared, key, f"skills.{name}.bindings") for key in declared},
+            source=_text(table, "source", what),
+            enabled=_flag(table, "enabled", what, True),
+            bindings=_bindings(table, what),
         )
 
     return InstallConfig(models=models, resources=resources, skills=skills)
@@ -338,20 +390,37 @@ def build_instances(config: InstallConfig, registry: Registry) -> Registry:
     return registry
 
 
-def skill_bindings(
-    config: InstallConfig,
-    skill: SkillRef,
-    registry: Registry,
-) -> dict[ResourceName, Instance]:
-    """Resolve one skill's declared resource names to instances.
+def instantiation(config: InstallConfig, source: SkillRef) -> SkillConfig:
+    """The instantiation of one skill, for a run that named the skill and not a copy.
 
     Raises:
-        ConfigError: the skill has no config section.
+        ConfigError: nothing instantiates it, or several do and the run must say which.
+    """
+    found = [skill for skill in config.skills.values() if skill.source == source]
+    if not found:
+        raise ConfigError(f"{source!r} is installed but not instantiated; add a [[skill]] for it")
+    if len(found) > 1:
+        raise ConfigError(
+            f"{source!r} is instantiated more than once; run one by name: "
+            f"{sorted(skill.name for skill in found)}"
+        )
+    return found[0]
+
+
+def skill_bindings(
+    config: InstallConfig,
+    skill: SkillName | None,
+    registry: Registry,
+) -> dict[ResourceName, Instance]:
+    """Resolve one instantiation's declared resource names to instances.
+
+    Raises:
+        ConfigError: no instantiation goes by that name, or the run named none at all.
         ResourceError: a name is bound to an instance that is not configured.
     """
-    skill_config = config.skills.get(skill)
+    skill_config = config.skills.get(skill) if skill is not None else None
     if skill_config is None:
-        raise ConfigError(f'no [skills."{skill}"] section; nothing to bind its resources to')
+        raise ConfigError(f"no [[skill]] named {skill!r}; nothing to bind its resources to")
     return {name: registry.instance(binding) for name, binding in skill_config.bindings.items()}
 
 
@@ -370,6 +439,7 @@ __all__ = [
     "bundled_path",
     "config_path",
     "find_home",
+    "instantiation",
     "load_config",
     "parse_config",
     "skill_bindings",

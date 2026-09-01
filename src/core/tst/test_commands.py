@@ -93,8 +93,10 @@ type = "test/fixture/mailbox"
 host = "mail.example.com"
 token = "app-password"
 
-[skills."test/email-digest".bindings]
-inbox = "fake-inbox"
+[[skill]]
+name = "morning-digest"
+source = "test/email-digest"
+resources.inbox = { instance = "fake-inbox" }
 """
 
 
@@ -203,12 +205,25 @@ def test_check_command__fails_when_the_graph_does_not_parse(tmp_path: Path) -> N
 # region run_command
 
 
+def test_run_command__runs_an_instantiated_skill_by_the_name_the_install_gave_it(
+    capsys: pytest.CaptureFixture[str],
+    model: ScriptedModel,
+    home: Path,
+) -> None:
+    # prepare / act — the [[skill]] name, not the skill's own ref
+    code = run_command("morning-digest", [], [], home)
+
+    # verify
+    assert code == 0
+    assert json.loads(capsys.readouterr().out) == {"digest": "one bill, one invitation"}
+
+
 def test_run_command__runs_an_installed_skill_by_ref(
     capsys: pytest.CaptureFixture[str],
     model: ScriptedModel,
     home: Path,
 ) -> None:
-    # prepare / act — a ref, not a path
+    # prepare / act — a ref, not a path; one instantiation names it, so it is unambiguous
     code = run_command("test/email-digest", [], [], home)
 
     # verify
@@ -233,8 +248,10 @@ def test_run_command__writes_the_record_when_given_a_path(
     # verify
     assert code == 0
     written: dict[str, Json] = json.loads(record.read_text())
-    # A path that is an installed skill is still recorded under its ref.
+    # A path that is an installed skill is still recorded under its ref, and under the
+    # instantiation it ran as.
     assert written["skill"] == "test/email-digest"
+    assert written["name"] == "morning-digest"
     nodes = written["nodes"]
     assert isinstance(nodes, list)
     entries = [entry for entry in nodes if isinstance(entry, dict)]
@@ -269,12 +286,22 @@ def test_run_command__fails_when_the_ref_is_not_installed(model: ScriptedModel, 
     assert run_command("nothing-like-this", [], [], home) == 1
 
 
-def test_run_command__fails_when_a_resource_is_unbound(model: ScriptedModel, home: Path) -> None:
-    # prepare — the config no longer says which instance fills ``inbox``
-    (home / "config.toml").write_text(CONFIG.split("[skills.")[0])
+def test_run_command__fails_when_the_skill_is_installed_but_not_instantiated(
+    model: ScriptedModel, home: Path
+) -> None:
+    # prepare — the config no longer stamps out a copy of the skill
+    (home / "config.toml").write_text(CONFIG.split("[[skill]]")[0])
 
     # act / verify
     assert run_command("test/email-digest", [], [], home) == 1
+
+
+def test_run_command__fails_when_a_resource_is_unbound(model: ScriptedModel, home: Path) -> None:
+    # prepare — instantiated, but nothing says which instance fills ``inbox``
+    (home / "config.toml").write_text(CONFIG.split("resources.inbox")[0])
+
+    # act / verify
+    assert run_command("morning-digest", [], [], home) == 1
 
 
 # endregion

@@ -19,6 +19,7 @@ from lila.config import (
     build_resource,
     config_path,
     find_home,
+    instantiation,
     load_config,
     parse_config,
     skill_bindings,
@@ -44,8 +45,10 @@ host = "mail.example.com"
 port = 993
 secrets = { token = "LILA_INBOX_TOKEN" }
 
-[skills."test/email-digest".bindings]
-inbox = "fake-inbox"
+[[skill]]
+name = "morning-digest"
+source = "test/email-digest"
+resources.inbox = { instance = "fake-inbox" }
 """
 
 
@@ -81,7 +84,8 @@ def test_parse_config__reads_models_resources_and_skills_when_all_sections_prese
     assert parsed.resources["fake-inbox"].type == MAILBOX
     assert parsed.resources["fake-inbox"].settings["host"] == "mail.example.com"
     assert parsed.resources["fake-inbox"].secrets == {"token": "LILA_INBOX_TOKEN"}
-    assert parsed.skills["test/email-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["morning-digest"].source == "test/email-digest"
+    assert parsed.skills["morning-digest"].bindings == {"inbox": "fake-inbox"}
 
 
 def test_parse_config__defaults_the_backend_to_ollama_when_unset(config: ConfigFactory) -> None:
@@ -98,6 +102,48 @@ def test_parse_config__returns_empty_when_the_document_is_empty(config: ConfigFa
 
     # verify
     assert parsed == InstallConfig()
+
+
+def test_parse_config__defaults_a_skill_to_enabled_when_unset(config: ConfigFactory) -> None:
+    # prepare / act
+    parsed = config('[[skill]]\nname = "morning-digest"\nsource = "test/email-digest"\n')
+
+    # verify
+    assert parsed.skills["morning-digest"].enabled
+
+
+def test_parse_config__raises_when_two_instantiations_claim_one_name(
+    config: ConfigFactory,
+) -> None:
+    # act / verify
+    with pytest.raises(ConfigError, match="two instantiations claim this name"):
+        config('[[skill]]\nname = "d"\nsource = "a"\n[[skill]]\nname = "d"\nsource = "b"\n')
+
+
+def test_parse_config__binds_a_resource_named_like_a_skill_field(config: ConfigFactory) -> None:
+    # prepare / act — `resources` is its own table, so no name is reserved
+    parsed = config(
+        '[[skill]]\nname = "d"\nsource = "s"\nresources.enabled = { instance = "fake-inbox" }\n'
+    )
+
+    # verify
+    assert parsed.skills["d"].bindings == {"enabled": "fake-inbox"}
+
+
+def test_parse_config__raises_when_a_resource_binding_is_not_a_table(
+    config: ConfigFactory,
+) -> None:
+    # act / verify
+    with pytest.raises(ConfigError, match=r"skill.d.resources.inbox must be a table"):
+        config('[[skill]]\nname = "d"\nsource = "s"\nresources.inbox = "fake-inbox"\n')
+
+
+def test_parse_config__raises_when_a_skill_is_a_table_rather_than_an_array(
+    config: ConfigFactory,
+) -> None:
+    # act / verify
+    with pytest.raises(ConfigError, match=r"\[\[skill\]\], not \[skill\]"):
+        config('[skill]\nname = "morning-digest"\n')
 
 
 def test_parse_config__raises_when_a_required_field_is_missing(config: ConfigFactory) -> None:
@@ -126,7 +172,7 @@ def test_load_config__reads_a_file_when_it_exists(tmp_path: Path) -> None:
     parsed = load_config(path)
 
     # verify
-    assert parsed.skills["test/email-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["morning-digest"].bindings == {"inbox": "fake-inbox"}
 
 
 def test_find_home__walks_up_to_the_nearest_install(
@@ -364,13 +410,13 @@ def test_skill_bindings__maps_a_skills_resources_to_configured_instances(
     built = build_instances(parsed, registry)
 
     # act
-    bound = skill_bindings(parsed, "test/email-digest", built)
+    bound = skill_bindings(parsed, "morning-digest", built)
 
     # verify
     assert bound["inbox"].name == "fake-inbox"
 
 
-def test_skill_bindings__raises_when_the_skill_has_no_section(
+def test_skill_bindings__raises_when_nothing_goes_by_that_name(
     config: ConfigFactory,
     registry: Registry,
     monkeypatch: pytest.MonkeyPatch,
@@ -381,19 +427,58 @@ def test_skill_bindings__raises_when_the_skill_has_no_section(
     built = build_instances(parsed, registry)
 
     # act / verify
-    with pytest.raises(ConfigError, match=r'no \[skills."test/other"\] section'):
-        skill_bindings(parsed, "test/other", built)
+    with pytest.raises(ConfigError, match=r"no \[\[skill\]\] named 'other'"):
+        skill_bindings(parsed, "other", built)
 
 
 def test_skill_bindings__raises_when_a_name_is_bound_to_nothing(
     config: ConfigFactory, registry: Registry
 ) -> None:
     # prepare
-    parsed = config("[skills.\"test/email-digest\".bindings]\ninbox = 'nowhere'\n")
+    parsed = config(
+        '[[skill]]\nname = "morning-digest"\nsource = "test/email-digest"\n'
+        "resources.inbox = { instance = 'nowhere' }\n"
+    )
 
     # act / verify
     with pytest.raises(ResourceError, match="no resource configured as 'nowhere'"):
-        skill_bindings(parsed, "test/email-digest", build_instances(parsed, registry))
+        skill_bindings(parsed, "morning-digest", build_instances(parsed, registry))
+
+
+# endregion
+
+# region instantiation
+
+
+def test_instantiation__finds_the_copy_a_ref_was_stamped_into(config: ConfigFactory) -> None:
+    # prepare
+    parsed = config(FULL_CONFIG)
+
+    # act / verify
+    assert instantiation(parsed, "test/email-digest").name == "morning-digest"
+
+
+def test_instantiation__raises_when_the_skill_was_never_instantiated(
+    config: ConfigFactory,
+) -> None:
+    # prepare
+    parsed = config(FULL_CONFIG)
+
+    # act / verify
+    with pytest.raises(ConfigError, match="installed but not instantiated"):
+        instantiation(parsed, "test/other")
+
+
+def test_instantiation__raises_when_two_copies_share_one_source(config: ConfigFactory) -> None:
+    # prepare — the ref no longer says which copy to run
+    parsed = config(
+        '[[skill]]\nname = "morning"\nsource = "test/email-digest"\n'
+        '[[skill]]\nname = "evening"\nsource = "test/email-digest"\n'
+    )
+
+    # act / verify
+    with pytest.raises(ConfigError, match="instantiated more than once"):
+        instantiation(parsed, "test/email-digest")
 
 
 # endregion

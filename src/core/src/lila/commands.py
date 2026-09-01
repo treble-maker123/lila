@@ -19,12 +19,14 @@ from lila.config import (
     SKILLS_DIR,
     ConfigError,
     InstallConfig,
+    SkillConfig,
     adapters_path,
     build_instances,
     build_models,
     bundled_path,
     config_path,
     find_home,
+    instantiation,
     load_config,
     skill_bindings,
     skills_path,
@@ -33,7 +35,14 @@ from lila.executor import Graph, GraphError, RunContext, RunError, load_graph, r
 from lila.ext import ExtError, ToolError, ToolName
 from lila.install import InstallError
 from lila.model import ModelError, OllamaModel
-from lila.resources import ArgName, InstanceName, Registry, ResourceError, SkillRef
+from lila.resources import (
+    ArgName,
+    InstanceName,
+    Registry,
+    ResourceError,
+    SkillName,
+    SkillRef,
+)
 from lila.skills import discover as discover_skills
 from lila.skills import resolve_skill
 from lila.tools import default_handlers
@@ -86,10 +95,12 @@ def build_registry(home: FilePath, config: InstallConfig) -> Registry:
 
 @dataclass(frozen=True, slots=True)
 class Target:
-    """What a command was pointed at: the graph file, and the ref it is known by."""
+    """What a command was pointed at: the graph file, the ref it is known by, and the
+    instantiation supplying its bindings. ``lila check`` takes a file and has none."""
 
     path: FilePath
     ref: SkillRef
+    name: SkillName | None = None
 
 
 def load_checked(
@@ -106,35 +117,57 @@ def load_checked(
     except GraphError as exc:
         print(f"{target.path}: {exc}", file=sys.stderr)
         return None
-    skill = config.skills.get(graph.ref) if config is not None else None
+    skill = config.skills.get(target.name) if config is not None and target.name else None
     issues = check(graph, skill.bindings if skill is not None else None, registry)
     for issue in issues:
         print(str(issue), file=sys.stderr)
     return None if issues else graph
 
 
-def resolve_target(target: str, registry: Registry | None = None) -> Target:
-    """A graph file: a path when one exists, otherwise a skill ref installed here.
-
-    Lets ``lila run test/email-digest`` mean the same thing as its full path: a file
-    that is an installed skill keeps that skill's ref, so both spellings bind alike. A
-    graph nothing installed points at is identified by its path.
+def _source_path(skill: SkillConfig, registry: Registry) -> FilePath:
+    """The graph one instantiation runs.
 
     Raises:
-        ConfigError: the ref is not installed, and no such file exists.
+        ConfigError: its ``source`` names no installed skill — which is what an upstream
+            rename looks like.
     """
-    known = (registry or Registry()).skills
+    path = registry.skills.get(skill.source)
+    if path is None:
+        raise ConfigError(
+            f"skill.{skill.name}: no installed skill {skill.source!r}; "
+            f"installed: {sorted(registry.skills)}"
+        )
+    return path
+
+
+def resolve_target(target: str, config: InstallConfig, registry: Registry) -> Target:
+    """What to run: an instantiation name, a graph file, or an installed skill ref.
+
+    Instantiation names win — that is the name this install chose, and the only spelling
+    that can distinguish two copies of one skill. A file or a ref still runs, under the
+    single instantiation naming it as ``source``, so ``lila run test/email-digest`` means
+    the same thing as its full path.
+
+    Raises:
+        ConfigError: nothing here answers to the name, or the skill it names is
+            installed but never instantiated.
+    """
+    named = config.skills.get(target)
+    if named is not None:
+        return Target(path=_source_path(named, registry), ref=named.source, name=target)
+    known = registry.skills
     as_file = FilePath(target)
     if as_file.exists():
         resolved = as_file.resolve()
         ref = next((ref for ref, path in known.items() if path.resolve() == resolved), target)
-        return Target(path=as_file, ref=ref)
+        return Target(path=as_file, ref=ref, name=instantiation(config, ref).name)
     installed = known.get(target)
     if installed is None:
         raise ConfigError(
-            f"{target!r} is neither a file nor an installed skill; here: {sorted(known)}"
+            f"{target!r} is neither an instantiated skill nor a file nor installed here; "
+            f"instantiated: {sorted(config.skills)}; installed: {sorted(known)}"
         )
-    return Target(path=installed, ref=target)
+    return Target(path=installed, ref=target, name=instantiation(config, target).name)
 
 
 def check_command(path: FilePath) -> int:
@@ -149,6 +182,7 @@ def check_command(path: FilePath) -> int:
 
 async def execute(
     graph: Graph,
+    name: SkillName | None,
     run_input: dict[ArgName, Json],
     config: InstallConfig,
     registry: Registry,
@@ -160,7 +194,7 @@ async def execute(
         ConfigError, ResourceError, RunError, ModelError: as raised by the run.
     """
     models = build_models(config)
-    resources = skill_bindings(config, graph.ref, registry)
+    resources = skill_bindings(config, name, registry)
     context = RunContext(
         handlers=default_handlers(),
         models=models,
@@ -169,7 +203,7 @@ async def execute(
         skills=resolve_skill(registry),
     )
     try:
-        result = await run(graph, run_input, context, resources)
+        result = await run(graph, run_input, context, resources, name)
     finally:
         for model in models.values():
             if isinstance(model, OllamaModel):
@@ -178,7 +212,7 @@ async def execute(
     print(json.dumps(result.output, indent=2))
     record = result.record
     steps = " -> ".join(entry.node_id for entry in record.nodes)
-    print(f"{record.skill}: {steps}", file=sys.stderr)
+    print(f"{record.name} ({record.skill}): {steps}", file=sys.stderr)
     if record_path is not None:
         record_path.write_text(json.dumps(asdict(record), indent=2, default=str))
 
@@ -192,13 +226,13 @@ def run_command(
 ) -> int:
     """``lila run`` — check a graph, then run it against the install it belongs to.
 
-    ``target`` is a path to a graph file or the ref of a skill installed in home.
+    ``target`` is an instantiation's name, a path to a graph file, or an installed ref.
     """
     try:
         home = home_path.resolve() if home_path is not None else find_home()
         config = load_config(config_path(home))
         registry = build_registry(home, config)
-        found = resolve_target(target, registry)
+        found = resolve_target(target, config, registry)
     except (ConfigError, InstallError, ExtError) as exc:
         print(str(exc), file=sys.stderr)
         return FAILED
@@ -210,7 +244,7 @@ def run_command(
         return FAILED
     try:
         run_input = parse_input(pairs, json_pairs)
-        asyncio.run(execute(graph, run_input, config, registry, record_path))
+        asyncio.run(execute(graph, found.name, run_input, config, registry, record_path))
     except (ValueError, ConfigError, ResourceError, RunError, ModelError) as exc:
         print(f"{found.path}: {exc}", file=sys.stderr)
         return FAILED

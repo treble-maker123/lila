@@ -18,10 +18,10 @@
 # The resolver searches the install first, then what ships with the harness. Commands
 # find the install by walking up from the working directory, so they work from anywhere
 # in the tree; $LILA_HOME or --home overrides. A skill can then be named by ref rather
-# than pathed:
+# than pathed, or by what this install calls its copy of it:
 #
 #   lila call gmail-personal.list_messages --arg unread=true
-#   lila run test/email-digest
+#   lila run morning-digest
 #
 # A skill file is portable: it names a model alias and its own name for each resource it
 # needs, never an endpoint, a credential, or a folder on your disk. This file is the
@@ -95,17 +95,46 @@ secrets = { token = "LILA_DISCORD_TOKEN" }
 
 
 # --- skills -------------------------------------------------------------------------
-# A skill declares the resources it needs (`resources: inbox: test/email/imap`) and
-# refuses to run until each is bound. This is where the skill's own name for a resource
-# meets an instance: name on the left, a [resources] name on the right. Two skills can
-# bind the same name to different mailboxes, and one skill can declare two of a type —
-# read from `inbox`, file into `archive`.
+# A skill is a template; this is where the install stamps out a copy of one and says
+# what it runs against. `name` is yours and is the run target — `lila run morning-digest`
+# — so an upstream rename cannot silently unbind anything; it shows up as a `source` that
+# resolves to nothing. The same skill can be instantiated twice, bound differently.
 #
-# The section is keyed by the skill's ref — where it sits under `skills/`. A skill
-# document names nothing about itself, so renaming the directory is what renames it.
+# `source` is the skill's ref: where it sits under `skills/`. `enabled` parses and prints
+# but gates nothing yet — nothing runs skills on its own.
+#
+# `resources.<name>` binds one resource the skill declares (`resources: inbox:
+# test/email/imap`) to the [resources] instance that fills it. A skill refuses to run
+# until each is bound. Two instantiations can point `inbox` at different mailboxes, and
+# one skill can declare two resources — read from `inbox`, post to `notify`.
+#
+# These are dotted keys *inside* the [[skill]] block, not [skill.inbox] headers: a
+# separate header attaches to whichever [[skill]] came last, so moving it silently
+# rebinds it to another skill. One line per resource, an inline table each.
+#
+# A resource with several keys can expand to one dotted line per key instead —
+# `resources.inbox.instance = "gmail-personal"`. Both forms parse the same and mix
+# across resources, but never within one: an inline `resources.inbox = { ... }`
+# followed by `resources.inbox.instance = ...` is a TOML redefinition error, and the
+# message will not mention skills.
 
-[skills."test/email-digest".bindings]
-inbox = "gmail-personal"
+[[skill]]
+name = "morning-digest"
+source = "test/email-digest"
+enabled = true
+resources.inbox = { instance = "gmail-personal" }
 
-[skills."test/discord-notify".bindings]
-alerts = "discord-alerts"
+[[skill]]
+name = "deploy-notes"
+source = "test/discord-notify"
+resources.alerts = { instance = "discord-alerts" }
+
+# A skill with two resources, in the expanded form — this is what the split buys: the
+# skill reads from one adapter and posts to another, and neither adapter knows the other
+# exists. Uncomment once such a skill is installed.
+#
+# [[skill]]
+# name = "digest-to-chat"
+# source = "test/email-to-chat"
+# resources.inbox.instance  = "gmail-personal"
+# resources.notify.instance = "discord-alerts"

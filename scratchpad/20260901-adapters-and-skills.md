@@ -5,7 +5,8 @@ resource + tool binding, structural check as a lint). Skills become install-inst
 and `extensions/` splits into two manifest-free trees, `adapters/` and `skills/`, with the
 path as identity and versioning left to git. Open: how a `ref:` subgraph's binding reaches it.
 Four tasks at the bottom, scoped to a thin slice, with what they defer under "Later".
-**Task 1 is done**; 2–4 are not started.
+**Tasks 1 and 2 are done**, including task 2's follow-up — bindings live inside the
+`[[skill]]` block as `resources.<name>` dotted keys; 3–4 are not started.
 
 ## Goal
 
@@ -351,14 +352,15 @@ name   = "morning-digest"        # install owns this — the run target
 source = "test/email-digest"     # the ref; no @version, see "Where skills live"
 enabled = true
 
-[skill.inbox]
-instance = "gmail-personal"
-fetch    = "list_messages"
-
-[skill.notify]
-instance = "discord-alerts"
-send     = "post_message"
+resources.inbox  = { instance = "gmail-personal", tools = { fetch = "list_messages" } }
+resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }
 ```
+
+The bindings sit *inside* the array element as dotted keys, under a `resources` table. One
+resource per line is the default; a resource with enough tool mappings to overrun the line
+expands to one dotted key per mapping, which parses the same.
+This landed as `[skill.<resource>]` sub-tables and is being changed — see the follow-up
+under task 2 for why.
 
 What it buys:
 
@@ -601,10 +603,117 @@ Drop `skill:` and `version:` from all three documents, including `digest.yaml`'s
 and `@1` from every ref in them. Tests asserting `test/fixture@1/fetch` or loading a manifest
 change shape — `test_extensions.py` most of all.
 
-### 2. Skill instantiation
+### 2. Skill instantiation — done
 
-`[[skill]]` with an install-owned `name`, replacing `[skills.*.bindings]` keyed by the graph's
-own `skill:` field. Shape is under "Skill instantiation" above.
+Landed as designed, and the follow-up below has since landed too: `SKILL_FIELDS` is gone,
+`_bindings` reads `raw["resources"]`, and `config.example.toml`, `.lila/config.toml` and the
+test fixtures spell bindings as dotted keys. Three notes on what the implementation settled:
+
+- **Bindings are sub-tables, not a `bindings` table.** `[skill.inbox]` with `instance =` in
+  it, which is the shape task 4 needs anyway; `SKILL_FIELDS` (`name`, `source`, `enabled`)
+  reserves the block's own keys and every other key is a resource. A scalar where a
+  sub-table belongs fails as "must be a table". The sub-table *shape* survives the
+  follow-up; where it hangs and how it is spelled do not.
+- **A ref resolves to its instantiation, not around it.** `config.instantiation(config, ref)`
+  finds the single `[[skill]]` naming it as `source`, so `lila run test/email-digest` still
+  works. None is the loud error the open question leaned to; two is ambiguous and names both.
+  A `source` nothing installed is the same error, which is what an upstream rename looks like.
+- **`RunRecord.name`** holds the instantiation, passed as `run(..., name=)`. A nested run has
+  none — only the top of a run is something the install named.
+
+**Follow-up: bindings move inside the block as `resources.<name>` dotted keys.** Landed.
+`[skill.inbox]` has two problems, and only the first was noticed at first.
+
+*It does not read as a resource.* Nothing in `[skill.inbox]` marks `inbox` as the skill's
+own name for a resource rather than another field of the `[[skill]]` block — it sits at the
+same depth as `name` and `source`, and only the reserved-key list separates them. The reader
+has to already know the rule to parse the file, which is the same failure as a name that
+means one thing to the writer and another to the reader. It is also load-bearing in the
+wrong direction: an author who writes `[skill.enabled]` meaning a resource called `enabled`
+gets a confusing error, and any field added to a `[[skill]]` block later silently steals a
+resource name. Task 4 makes this worse — those tables grow call mappings, so they get longer
+and look less like fields.
+
+*It attaches positionally.* This is the worse one. A sub-table after `[[skill]]` binds to
+whichever array element came last, and nothing in the block says which. Move a resource
+table, or paste a new `[[skill]]` above it, and it silently rebinds to a different skill —
+the exact quiet unbinding that `[[skill]]` was introduced to kill
+([20260831](20260831-binding-resource-instances.md)'s open question). Every spelling that
+keeps a separate `[skill.…]` header inherits this, including `[skill.resources.inbox]`.
+
+Dotted keys inside the array element fix both, because there is no second header to
+misplace. One line per resource, an inline table each — this is the default:
+
+```toml
+[[skill]]
+name    = "morning-digest"
+source  = "test/email-digest"
+enabled = true
+resources.inbox  = { instance = "gmail-personal", tools = { fetch = "list_messages" } }
+resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }
+```
+
+A TOML inline table cannot span lines, so a resource with three or four mappings runs past
+100 characters with nowhere to break. Expand that one — same keys, one per line:
+
+```toml
+[[skill]]
+name    = "morning-digest"
+source  = "test/email-digest"
+enabled = true
+resources.inbox.instance      = "gmail-personal"
+resources.inbox.tools.fetch   = "list_messages"
+resources.inbox.tools.archive = "move_message"
+resources.inbox.tools.flag    = "set_flag"
+resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }
+```
+
+Both parse to the same dict, and the two forms mix freely *across* resources — but never
+within one; see the caveats below. Inline is the default because it makes the resource the
+unit you scan for, and because `config.example.toml` already spells small sub-tables that
+way (`secrets = { password = "LILA_INBOX_PASSWORD" }`).
+
+Either way it parses to `{"name": …, "resources": {"inbox": {"instance": …, "tools": {…}}}}`.
+The whole
+instantiation is one contiguous block that cannot drift from its owner, `resources` mirrors
+the skill file's own `resources:` block where the local names come from, and `name` and
+`source` can never collide with a resource name. `SKILL_FIELDS` (`config.py:40`) is deleted
+and `_bindings` (`config.py:165`) stops scanning siblings — it reads `raw["resources"]`.
+
+`tools` is a nested table rather than bare pairs beside `instance` for the same reason one
+level down: with `instance = "…"` and `fetch = "list_messages"` in one table, a tool named
+`instance` is unspellable and the reserved-key problem is simply recreated inside the
+resource. Task 4 writes `resources.<name>.tools.<local> = "<tool>"`.
+
+Options that lost:
+
+| Spelling | Reads as | Why not |
+|---|---|---|
+| `[skill.resources.inbox]` | a resource, unambiguously | still positional; one more segment |
+| `[skill.bind.inbox]` | the verb, and matches "bind time" | still positional; invents a word |
+| `[skills.<name>.resources.inbox]` | a resource, owner named in the header | fixes both, but abandons `[[skill]]` for a name-keyed table and the headers get long |
+| `bindings = { inbox = { instance = … } }` | inline, one place | unreadable once task 4 adds call pairs |
+
+Two things to write down where users see them:
+
+- **Do not mix the spellings for one resource.** `resources.inbox = { … }` followed by
+  `resources.inbox.tools.fetch = …` is a TOML redefinition error, and the message will not
+  mention skills. This is the likelier mistake precisely because both forms are expected —
+  the natural way to add a fourth mapping to an inline resource is to append a dotted line.
+  One line in `config.example.toml`'s skills comment.
+- **Dotted keys are the less-travelled corner of TOML.** Someone who has only read
+  `[section]` headers may not recognize the form. That file is heavily commented already, so
+  it is cheap to cover; while there, show both spellings and a two-resource skill, which is
+  the motivating case and is currently not shown.
+
+**Edited:** `SKILL_FIELDS` (deleted) and `_bindings` in `config.py`, the `[[skill]]` blocks in
+`config.example.toml` and `.lila/config.toml`, and the `test_config`/`test_commands` fixtures.
+`config.example.toml` carries both caveats and a commented two-resource instantiation; `tools`
+is not parsed yet — task 4 adds it.
+
+What landed, for the record: `[[skill]]` with an install-owned `name`, replacing
+`[skills.*.bindings]` keyed by the graph's own `skill:` field. Shape is under "Skill
+instantiation" above.
 
 **Config.** `SkillConfig` (`config.py:63`) becomes an instantiation: `name`, `source` (the
 ref), `enabled`, `bindings`. `InstallConfig.skills` stays a dict keyed by `name`, but `name` is
@@ -620,9 +729,9 @@ bindings for the check.
 ref. It gains a first step: an instantiation name. Order matters — instantiation names win,
 since that is what the user named.
 
-*Open:* what `lila run test/email-digest` does when the ref is installed but never
-instantiated. Erroring with "instantiate it first" is loud and consistent; letting it run
-unbound is what happens today. Leaning loud.
+*Resolved:* `lila run test/email-digest` on a ref that is installed but never instantiated
+errors — loud, as leaned. A file path is the same case: it resolves to its ref, then to the
+instantiation of that ref.
 
 **`enabled` is inert on arrival.** Nothing runs skills on its own yet — the scheduler is
 punted — so it parses, prints in listings, and gates nothing. Worth landing anyway as the

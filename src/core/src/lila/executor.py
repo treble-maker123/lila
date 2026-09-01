@@ -20,7 +20,7 @@ import yaml
 
 from lila.ext import ToolName, TypeRef
 from lila.model import GenerateOptions, Message, Model, Usage
-from lila.resources import ArgName, Instance, Registry, ResourceName, SkillRef
+from lila.resources import ArgName, Instance, Registry, ResourceName, SkillName, SkillRef
 from lila.values import Json, JsonSchema, Yaml
 
 # region names
@@ -826,6 +826,7 @@ class RunRecord:
     """What one run did, in order — the artifact a replay and a report read."""
 
     skill: SkillRef  # the graph that ran, by the ref it was found under
+    name: SkillName | None = None  # the instantiation it ran as; a nested run has none
     nodes: list[NodeEntry] = field(default_factory=list)
     edges: list[EdgeEntry] = field(default_factory=list)
     backend_version: str | None = None  # what produced the outputs, for replay
@@ -971,8 +972,12 @@ async def run(
     run_input: dict[ArgName, Json],
     context: RunContext,
     resources: Mapping[ResourceName, Instance] | None = None,
+    name: SkillName | None = None,
 ) -> RunResult:
     """Execute a graph. A nested run is this same function with a fresh memory.
+
+    ``name`` is the instantiation this run was started as, recorded and nothing more; a
+    nested run has none, since only the top of a run is something the install named.
 
     Raises:
         RunError: input/output validation fails, a resource is unbound, a node has no
@@ -981,7 +986,7 @@ async def run(
     """
     _validate(run_input, graph.input, "graph input", None)
     memory = RunMemory(run_input, bind_resources(graph, resources or {}))
-    record = RunRecord(skill=graph.ref, backend_version=context.backend_version)
+    record = RunRecord(skill=graph.ref, name=name, backend_version=context.backend_version)
 
     current = graph.entry
     steps = 0

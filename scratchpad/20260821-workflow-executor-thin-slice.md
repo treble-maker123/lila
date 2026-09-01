@@ -1,9 +1,9 @@
 # Workflow Executor Thin-Slice
 
 **Status**: on-going — T1–T10 implemented and unit-tested. Remaining: proof against a real
-inbox, a real Discord post (the config holds a placeholder token), and T11 (scheduler). P10 failure semantics is designed
-and deferred to the TODOs, as is stubs/replay. P1–P7 unreviewed; P8/P9 agreed but unimplemented, so
-the code still uses the pre-P8 shape (`mailbox@1`, `uses:`/`call:`).
+inbox and a real Discord post (the config holds a placeholder token). The scheduler is punted to
+the TODOs, as are P10 failure semantics and stubs/replay. P1–P7 unreviewed; P8/P9 agreed but
+unimplemented, so the code still uses the pre-P8 shape (`mailbox@1`, `uses:`/`call:`).
 
 ## Goal
 
@@ -578,12 +578,12 @@ Everything lands in `src/core/src/lila/` unless noted.
 | T8 | E-mail skill + `lila run` | the proof | T5–T7 | built, unproven against a real inbox |
 | T9 | Extensions (P8, P9) | `ext.py`, loader, e-mail moved out of core | T6 | done |
 | T10 | Discord channel | an extension — resource + `post_message` tool | T9 | built, unproven against a real channel |
-| T11 | Scheduler | `schedule.py`, cron-triggered runs, `lila schedule` | T8, T10 | new |
 | — | *TODO* stubs + replay | run a graph with no backend | T3, T4 | punted, TODO in-code |
 | — | *TODO* failure semantics | P10 in code | T4 | designed, deferred |
+| — | *TODO* scheduler | `schedule.py`, cron-triggered runs, `lila schedule` | T8, T10 | punted |
 
-P10 is designed but not scheduled. Until it lands, a scheduled run that fails is silent past
-the record, and T11 has no terminal state to read.
+P10 and the scheduler are entangled: the scheduler is the first caller with no user attached,
+so until P10 lands a scheduled run that fails is silent past the record.
 
 ### T1 — Graph model and loader → `executor.py`
 
@@ -742,45 +742,6 @@ so a notification always lands; splitting into N posts is noted in the code as l
 since it turns one call into N with partial-failure semantics. `lila call` proves the path
 end to end (a placeholder token gets a clean `401` as a `ToolError`, not a traceback).
 
-### T11 — Scheduler → `schedule.py`
-
-Cron is the vocabulary. Five fields, everyone knows them, and the expression is what a user
-edits.
-
-Own the tick loop rather than write crontab lines. System cron cannot express *don't start if
-the last run is still going*. It has no catch-up policy after a laptop sleeps. It gives no run
-record. And it wants the install path (`.lila/`, `$LILA_HOME`) baked into a line that silently
-rots.
-
-A schedule entry is a saved invocation: skill ref, `input:`, the cron expression, and the
-error skill to run if the run ends failed. It is config, not a graph —
-`.lila/schedules.toml`, beside `config.toml`, so scheduling never becomes a node type either.
-
-The scheduler is the first caller with no user attached. That is what makes P10 load-bearing
-here, and P10 is deferred — so the error skill is the one part of an entry that does nothing
-yet.
-
-Once P10 lands, the scheduler reads one field: the run's terminal state. It does one thing
-with a failure — start the entry's error skill with the error as input, once, unhandled. That
-is P10's push half. The pull half needs no scheduler support; the failure is already in the
-record.
-
-| Piece | Is |
-|---|---|
-| `lila schedule list` | entries, last run, next due |
-| `lila schedule run <name>` | fire one now, ignoring the clock — the debug path |
-| `lila schedule tick` | run everything due once, then exit — cron-safe, testable, no daemon |
-| `lila schedule daemon` | `tick` in a sleep loop; the same code path |
-
-`tick`-then-`daemon` keeps the scheduling logic pure. Due time is a function of (expression,
-last run, now), tested with no clock and no sleep.
-
-Open: misfire policy after a long sleep — skip, catch up once, or catch up all. And overlap —
-skip or queue. Both want a default before they want a setting.
-
-Cron parsing is ~60 lines of stdlib. The ranges-and-steps subset is enough; a dependency is
-not worth it.
-
 ### TODO — stubs and replay
 
 `load_stubs(path) -> StubSet`, a handler wrapper that intercepts by node id, with the
@@ -804,3 +765,10 @@ node. A warning when a catch subgraph's only reachable exit is a success `end`.
 Nesting gives skill-level propagation with no extra code: an uncaught error in a child run
 surfaces as the `skill.run` node's error. An error raised inside a catch path is not caught
 again. It ends the run at the floor.
+
+### TODO — scheduler → `schedule.py`
+
+Own the tick loop (`list`/`run`/`tick`/`daemon`) over cron expressions read from
+`.lila/schedules.toml` — a schedule entry is a saved invocation (skill ref, `input:`, cron,
+error skill), config rather than a node type; needs P10 first, since the error skill is
+P10's push half. Full design in git history.

@@ -33,7 +33,7 @@ nodes:
   - id: list
     type: tool
     resource: inbox
-    call: list_messages
+    call: fetch
     args: { limit: 2 }
 
   - id: summaries
@@ -56,7 +56,7 @@ nodes:
         - id: fetch
           type: tool
           resource: inbox
-          call: get_message
+          call: read
           args: { id: $.input.message_id }
         - id: summarize
           type: llm
@@ -96,7 +96,7 @@ token = "app-password"
 [[skill]]
 name = "morning-digest"
 source = "test/email-digest"
-resources.inbox = { instance = "fake-inbox" }
+resources.inbox = { instance = "fake-inbox", tools = { fetch = "list_messages", read = "get_message" } }
 """
 
 

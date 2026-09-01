@@ -10,6 +10,7 @@ import yaml
 
 from lila.adapters import load
 from lila.executor import Graph, parse_graph
+from lila.resources import Binding
 from lila.verification import Issue, check
 
 # region fixtures
@@ -32,6 +33,10 @@ def rules(issues: list[Issue]) -> list[str]:
     return [issue.rule for issue in issues]
 
 
+# What VALID_GRAPH calls the fixture adapter's tools — the install's half of the diff.
+INBOX = {"inbox": Binding(instance="gmail-personal", tools={"read": "get_message"})}
+
+
 VALID_GRAPH = """
 resources: { inbox: test/fixture/mailbox }
 entry: fetch
@@ -43,7 +48,7 @@ nodes:
   - id: fetch
     type: tool
     resource: inbox
-    call: get_message
+    call: read
     args: { id: $.input.message_id }
   - id: classify
     type: llm
@@ -70,7 +75,7 @@ def test_check__returns_no_issues_when_the_graph_is_runnable(graph_from: GraphFa
     graph = graph_from(VALID_GRAPH)
 
     # act
-    issues = check(graph, bindings={"inbox": "gmail-personal"})
+    issues = check(graph, bindings=INBOX)
 
     # verify
     assert issues == []
@@ -361,17 +366,92 @@ def test_check__reports_a_pure_ref_that_names_nothing(graph_from: GraphFactory) 
     assert rules(issues) == ["unknown-tool"]
 
 
-def test_check__reports_a_call_the_resource_type_does_not_have(
+def test_check__reports_a_binding_that_maps_a_call_to_no_tool_on_the_type(
     graph_from: GraphFactory,
 ) -> None:
-    # prepare — the rule needs a registry: without one, nothing knows what exists
-    graph = graph_from(VALID_GRAPH.replace("call: get_message", "call: burn_inbox"))
+    # prepare — what an adapter renaming a tool looks like at bind time
+    graph = graph_from(VALID_GRAPH)
+    bindings = {"inbox": Binding(instance="gmail-personal", tools={"read": "burn_inbox"})}
+
+    # act
+    issues = check(graph, bindings=bindings, registry=load(FIXTURES))
+
+    # verify
+    assert rules(issues) == ["unknown-tool"]
+    assert "read -> burn_inbox" in str(issues[0])
+
+
+def test_check__reports_a_call_the_install_mapped_to_nothing(graph_from: GraphFactory) -> None:
+    # prepare — a skill update that added a call, or a mapping never written
+    graph = graph_from(VALID_GRAPH)
+    bindings = {"inbox": Binding(instance="gmail-personal", tools={"send": "post_message"})}
+
+    # act
+    issues = check(graph, bindings=bindings, registry=load(FIXTURES))
+
+    # verify
+    assert rules(issues) == ["unmapped-call"]
+    assert "inbox.read is not bound to a tool" in str(issues[0])
+
+
+def test_check__skips_the_tool_rules_when_nothing_says_which_tool_a_call_reaches(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — a call is the skill's own name, so a bare file cannot be diffed
+    graph = graph_from(VALID_GRAPH.replace("call: read", "call: burn_inbox"))
 
     # act
     issues = check(graph, registry=load(FIXTURES))
 
     # verify
-    assert rules(issues) == ["unknown-tool"]
+    assert issues == []
+
+
+CHILD_CALL_GRAPH = """
+resources: { inbox: test/fixture/mailbox }
+entry: gather
+nodes:
+  - id: gather
+    type: skill.run
+    resources: { box: inbox }
+    graph:
+      resources: [box]
+      entry: work
+      nodes:
+        - { id: work, type: tool, resource: box, call: read, args: {} }
+      edges:
+        - { from: work, to: end }
+edges:
+  - { from: gather, to: end }
+"""
+
+
+def test_check__reports_an_unmapped_call_an_inline_subgraph_makes(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — the child shares the parent's binding, so the map must cover its calls
+    graph = graph_from(CHILD_CALL_GRAPH)
+    bindings = {"inbox": Binding(instance="gmail-personal", tools={"list": "list_messages"})}
+
+    # act
+    issues = check(graph, bindings=bindings, registry=load(FIXTURES))
+
+    # verify — named under the node that runs the child
+    assert rules(issues) == ["unmapped-call"]
+    assert issues[0].node_id == "gather.work"
+
+
+def test_check__resolves_an_inline_subgraphs_call_through_the_parents_binding(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(CHILD_CALL_GRAPH)
+
+    # act
+    issues = check(graph, bindings=INBOX, registry=load(FIXTURES))
+
+    # verify
+    assert issues == []
 
 
 def test_check__reports_a_path_outside_a_tools_own_result_schema(
@@ -381,7 +461,7 @@ def test_check__reports_a_path_outside_a_tools_own_result_schema(
     graph = graph_from(VALID_GRAPH.replace("{{ $.fetch.subject }}", "{{ $.fetch.body }}"))
 
     # act
-    issues = check(graph, registry=load(FIXTURES))
+    issues = check(graph, bindings=INBOX, registry=load(FIXTURES))
 
     # verify
     assert [issue.node_id for issue in issues if issue.rule == "path"] == ["classify"]

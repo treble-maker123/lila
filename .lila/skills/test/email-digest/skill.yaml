@@ -22,7 +22,7 @@ nodes:
   - id: list
     type: tool
     resource: inbox
-    call: list_messages
+    call: fetch                # this skill's name for it; the install says which tool
     args:
       unread: true
       limit: 10                # the 10 most recent — a digest, not the whole backlog
@@ -61,7 +61,7 @@ nodes:
         - id: fetch
           type: tool
           resource: inbox
-          call: get_message
+          call: read             # inline, so the parent's map covers this too
           args:
             id: $.input.message_id
 

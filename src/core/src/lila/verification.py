@@ -27,7 +27,8 @@ from lila.executor import (
     paths_in,
     template_paths,
 )
-from lila.resources import InstanceName, Registry, ResourceName
+from lila.ext import ToolName, TypeRef
+from lila.resources import Binding, Registry, ResourceName
 from lila.values import Json, JsonSchema
 
 type RuleName = str  # the check that produced an issue, e.g. ``unreachable-edge``
@@ -52,29 +53,51 @@ class _Context:
 
     graph: Graph
     registry: Registry | None = None  # what is installed, when the caller knows
+    bindings: dict[ResourceName, Binding] | None = None  # what the install bound, likewise
     issues: list[Issue] = field(default_factory=list)
 
     def report(self, rule: RuleName, message: str, node_id: NodeId | None = None) -> None:
         """Record one issue."""
         self.issues.append(Issue(rule=rule, message=message, node_id=node_id))
 
+    def call(self, config: ToolConfig, resource: ResourceName | None) -> ToolName | None:
+        """The adapter tool one tool node reaches, or None when nothing says.
+
+        A call is the skill's own name, so without bindings its tool is unknowable —
+        that is the price of the skill file naming nothing an adapter owns. ``resource``
+        is the name the install bound, which is the node's own only at the top level.
+        """
+        if config.resource is None:
+            return config.call
+        if self.bindings is None or resource is None:
+            return None
+        binding = self.bindings.get(resource)
+        return binding.tools.get(config.call) if binding is not None else None
+
+    def type_of(self, resource: ResourceName) -> TypeRef | None:
+        """The type the top-level graph declared for one bound resource name."""
+        return self.graph.resources.get(resource)
+
     def result(self, node: Node) -> JsonSchema | None:
         """The schema a node's output must match: its ``out:``, or its tool's result."""
         if not isinstance(node.config, ToolConfig) or self.registry is None:
             return node.out
+        call = self.call(node.config, node.config.resource)
+        if call is None:
+            return None
         if node.config.resource is None:
-            tool = self.registry.pure.get(node.config.call)
+            tool = self.registry.pure.get(call)
             return tool.result if tool is not None else None
         type_ref = self.graph.resources.get(node.config.resource)
         if type_ref is None:  # undeclared, or an inline subgraph's untyped name
             return None
-        tool = self.registry.tools.get((type_ref, node.config.call))
+        tool = self.registry.tools.get((type_ref, call))
         return tool.result if tool is not None else None
 
 
 def check(
     graph: Graph,
-    bindings: dict[ResourceName, InstanceName] | None = None,
+    bindings: dict[ResourceName, Binding] | None = None,
     registry: Registry | None = None,
 ) -> list[Issue]:
     """Every rule, in one pass. An empty list means the graph is runnable.
@@ -82,12 +105,12 @@ def check(
     ``bindings`` and ``registry`` are what an install knows: without them the
     binding and tool rules are skipped, and a tool node's output shape is unknown.
     """
-    context = _Context(graph=graph, registry=registry)
+    context = _Context(graph=graph, registry=registry, bindings=bindings)
     _check_ids(context)
     _check_edges(context)
     _check_reachability(context)
     _check_paths(context)
-    _check_resources(context, bindings)
+    _check_resources(context)
     _check_tools(context)
     return context.issues
 
@@ -165,49 +188,122 @@ def _reachable(graph: Graph, seeds: set[NodeId]) -> set[NodeId]:
     return seen
 
 
-def _check_resources(context: _Context, bindings: dict[ResourceName, InstanceName] | None) -> None:
+def _check_resources(context: _Context) -> None:
     """Every declared resource has a binding, when bindings were supplied at all."""
-    if bindings is None:
+    if context.bindings is None:
         return
     for name in context.graph.resources:
-        if name not in bindings:
+        if name not in context.bindings:
             context.report("unbound-resource", f"resource {name!r} is unbound")
 
 
 def _check_tools(context: _Context) -> None:
-    """Every tool node names a declared resource, and a tool its type really has.
+    """Every tool node names a declared resource, a call the binding maps, and a tool
+    that resource's type really has.
 
-    A node with no ``resource:`` names a pure tool, which is scoped by its own ref.
+    This is the bind-time diff: the skill's own call names on one side, the instance the
+    install named on the other. A call nobody mapped is the loud half of an upstream
+    rename — the fix is one line in the install's own config, not in someone's repo.
+
+    Inline subgraphs are walked too: they share the parent's names and so the parent's
+    binding, which means the map must cover the calls they make as well.
     """
     graph = context.graph
+    _check_graph_tools(context, graph, {name: name for name in graph.resources}, "")
+
+
+def _check_graph_tools(
+    context: _Context, graph: Graph, bound: dict[ResourceName, ResourceName], prefix: str
+) -> None:
+    """The tool rules over one graph, given how its resource names reach the install.
+
+    ``bound`` maps this graph's own resource names to the ones the instantiation bound —
+    identity at the top, and composed through each node's ``resources:`` below it.
+    ``prefix`` puts a child's issues under the node that runs it.
+    """
     for node in graph.nodes:
         config = node.config
+        node_id = f"{prefix}{node.id}"
+        if isinstance(config, SkillRunConfig):
+            _check_child_tools(context, config, bound, f"{node_id}.")
+            continue
         if not isinstance(config, ToolConfig):
             continue
         if config.resource is None:
             if context.registry is not None and config.call not in context.registry.pure:
                 known = sorted(context.registry.pure)
                 context.report(
-                    "unknown-tool", f"no pure tool {config.call!r}; installed: {known}", node.id
+                    "unknown-tool", f"no pure tool {config.call!r}; installed: {known}", node_id
                 )
             continue
         if config.resource not in graph.resources:
             context.report(
                 "undeclared-resource",
                 f"resource {config.resource!r} is not in resources:",
-                node.id,
+                node_id,
             )
             continue
-        type_ref = graph.resources[config.resource]
-        # An inline subgraph names a resource without typing it; only its parent's
-        # declaration says what tools it has.
-        if type_ref is None or context.registry is None:
+        resource = bound.get(config.resource)
+        if resource is None:
+            continue  # a child of a node that mapped nothing here; already reported
+        call = _mapped_call(context, config, resource, node_id)
+        type_ref = graph.resources[config.resource] or context.type_of(resource)
+        if call is None or type_ref is None or context.registry is None:
             continue
-        if context.registry.tools.get((type_ref, config.call)) is None:
+        if context.registry.tools.get((type_ref, call)) is None:
             known = sorted(context.registry.tools_of(type_ref))
             context.report(
-                "unknown-tool", f"{type_ref} has no tool {config.call!r}; it has {known}", node.id
+                "unknown-tool",
+                f"{resource}.{config.call} -> {call}, "
+                f"which {type_ref} has no tool for; it has {known}",
+                node_id,
             )
+
+
+def _check_child_tools(
+    context: _Context,
+    config: SkillRunConfig,
+    bound: dict[ResourceName, ResourceName],
+    prefix: str,
+) -> None:
+    """The same rules over an inline subgraph, under the names its node handed it.
+
+    A ``ref:`` child is another file with its own vocabulary and its own calls, and the
+    resolver that would load it is not available to a pure check — so it is left to the
+    run, which renames through the parent's map the same way this does.
+    """
+    if config.graph is None:
+        return
+    inherited = {
+        child_name: bound[child.source]
+        for child_name, child in config.resources.items()
+        if child.source in bound
+    }
+    _check_graph_tools(context, config.graph, inherited, prefix)
+
+
+def _mapped_call(
+    context: _Context, config: ToolConfig, resource: ResourceName, node_id: NodeId
+) -> ToolName | None:
+    """The tool a node's call is bound to, reporting when the binding maps none.
+
+    None means the check cannot go further: either nothing was bound to diff against, or
+    the mapping is missing and has already been reported.
+    """
+    if context.bindings is None:
+        return None
+    binding = context.bindings.get(resource)
+    if binding is None:
+        return None  # unbound, and _check_resources already said so
+    call = context.call(config, resource)
+    if call is None:
+        context.report(
+            "unmapped-call",
+            f"{resource}.{config.call} is not bound to a tool; "
+            f"this install maps {sorted(binding.tools)}",
+            node_id,
+        )
+    return call
 
 
 def _check_paths(context: _Context) -> None:

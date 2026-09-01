@@ -3,10 +3,11 @@
 **Status**: on-going — problem stated, terminology settled, interface decided (explicit
 resource + tool binding, structural check as a lint). Skills become install-instantiated,
 and `extensions/` splits into two manifest-free trees, `adapters/` and `skills/`, with the
-path as identity and versioning left to git. Open: how a `ref:` subgraph's binding reaches it.
+path as identity and versioning left to git. A `ref:` subgraph's binding is resolved — the
+parent renames the child's calls in the graph file, since both names are local.
 Four tasks at the bottom, scoped to a thin slice, with what they defer under "Later".
-**Tasks 1–3 are done**, including task 2's follow-up — bindings live inside the
-`[[skill]]` block as `resources.<name>` dotted keys; 4 is not started.
+**All four tasks are done** — bindings live inside the `[[skill]]` block as
+`resources.<name>` dotted keys, and carry the tool map.
 
 ## Goal
 
@@ -397,16 +398,65 @@ top-level entry. Too much for now, and swapping a subgraph is a want nobody has 
 coupling is real: the parent's author picked that child, unlike an adapter, which the parent
 must never name. Revisit if a case turns up.
 
-**Still open: how the adapter binding reaches a subgraph.** The parent binds `inbox` to
-`gmail-personal`. The child uses `inbox` too. Two readings:
+**How the binding reaches a subgraph — resolved: the parent maps it, in the graph file.**
 
-| | Child's block holds | Means |
+The parent binds `inbox` to `gmail-personal` and maps `fetch → list_messages`. A `ref:`
+child owns different names: it says `call: read`, and nothing in the parent's map answers.
+
+Both readings this question started with put the answer in config, keyed by node:
+
+| | Child's block holds | Cost |
 |---|---|---|
-| Instance flows down | call names only | the node's `resources: {inbox: inbox}` passes the instance; the child cannot read a different mailbox |
-| Child binds its own | `instance` and call names | a child can be pointed somewhere else; more to write, and two places name a mailbox |
+| Instance flows down | call names only | config mirrors graph structure by node id, and nests without bound — a `ref:` child with its own `ref:` child needs `children.a.children.b` |
+| Child binds its own | `instance` and call names | the same nesting, plus two places name a mailbox, and it half-reopens "child as a slot" |
 
-Inline subgraphs are settled either way — they inherit both. This only bites for the
-`ref:` case. Unresolved.
+Both are wrong for the same reason: this is not an install-side fact. The child's `read` and
+the parent's `fetch` are **both local names**, so what is missing is a translation between
+two local namespaces — the parent author's business, not the install's.
+
+```yaml
+- id: summaries
+  type: skill.run
+  ref: test/email-summarize
+  resources:
+    inbox: { from: inbox, tools: { read: fetch } }   # child's name : parent's name
+```
+
+No adapter string appears. The install still binds only `fetch → list_messages`. It
+composes to any depth with no config growth, and the coupling lands where this section
+already put it: the parent's author picked that child.
+
+It also mirrors the config shape one level up — a resource is `{instance, tools}` at the
+install boundary and `{from, tools}` at the child boundary.
+
+Two shapes under a `skill.run` node's `resources:`, by form: a bare string inherits the
+parent's map and is inline-only; a table renames and is `ref:`-only. Letting a `ref:` child
+take the bare string is the rejected reading where the child's local names quietly become
+the parent's. `_load_skill_run` already takes `inline: bool` and already rejects the wrong
+form for the child's own `resources:` block, so this is precedent, not a new rule. The check
+that the child's declared names match the node's mapping extends to calls: a call the child
+makes and the node did not map is a load error naming both sides.
+
+**Everything aggregates to the top, and that is the point.** Every resource *and every call*
+a transitive child uses must be mapped at each hop and bound at the root — a leaf three deep
+costs three node lines and one config line for one call. That is the grant chain: nothing a
+descendant does is reachable unless every ancestor named it, which is the isolation task 3
+kept and what makes the block the complete list of what a skill may do.
+
+The union is not created by this choice — the same instances are used under either reading;
+they only move to config, spelled per node. What renaming at the node buys is that each hop
+checks against one child's declarations, where the readings above need the whole tree walked
+against config to know a binding is complete. The tax is per-hop restatement, and it buys reuse: a child
+written in its own vocabulary sits under two parents that disagree about names without being
+edited.
+
+Where it gets ugly is two independent subtrees both wanting `notify`, leaving the top-level
+author inventing `notify-a`/`notify-b` for skills they did not write. That is a UI problem,
+not a format one — the aggregate `resources:` block and the union of calls are both derivable
+by walking refs, and defaults belong in the tool that writes the file.
+
+Only `ref:` is affected. Inline subgraphs inherit both, cost nothing, and are the only form
+in the repo today.
 
 ### Dynamic skills and bind time — resolved
 
@@ -784,7 +834,7 @@ parent holds. Only the type ref went away, and the node's mapping had already se
 "inherit everything" default, or a `resources: *`, would buy back a line at the cost of the
 isolation and of [TENETS.md](../docs/TENETS.md)'s explicit-over-implicit — not a trade to make.
 
-### 4. Tool mapping and the bind-time check
+### 4. Tool mapping and the bind-time check — done
 
 The `send = "post_message"` block, and the lint that diffs it against the instance.
 
@@ -803,12 +853,71 @@ graph makes is mapped, every mapping names a real tool on that type, args contra
 results covariant. Diagnostics, never a load failure — same instinct that rejected `requires`.
 Format is under "The check" above.
 
-*Open before this lands:* how a `ref:` subgraph's binding reaches it — see "Nested graphs".
-Mapping vs verbatim is closed (mapping).
+**Subgraphs.** An inline child inherits the parent's instance and map. A `ref:` child's node
+renames per resource — `inbox: { from: inbox, tools: { read: fetch } }` — and a call it makes
+that the node did not map is a load error. See "Nested graphs". Mapping vs verbatim is closed
+(mapping).
+
+**The three skill files respell** to local call names, so the mapping is exercised end to end
+and the adapter tool names leave the graphs entirely.
+
+**What landed.** As designed, with four notes:
+
+- **Two dataclasses, not one.** `Binding` (instance *name* + tools) is what config parses;
+  `Bound` (resolved `Instance` + tools) is what a run holds, and it replaces the bare
+  `Instance` in `RunMemory.resources`. Both live in `resources.py`, so `verification` reads
+  the install's vocabulary without importing `config`. `Bound.tool()` is the one place an
+  unmapped call is refused.
+- **`Registry.bind` was dead and is deleted.** Nothing called it — `executor.bind_resources`
+  had taken over — so growing it with the call map would have grown an unused path.
+- **The lint recurses into inline subgraphs.** It did not before, and with mapping that was
+  half the shipped example: `digest.yaml`'s only `read` call is in its child. `_check_tools`
+  now walks children under the names their node handed them, and reports as `summaries.fetch`.
+  A `ref:` child is not walked — a pure check has no resolver to load it with — so its
+  renames are checked at run.
+- **Variance is not checked.** Args and results are already validated against the tool's own
+  schemas at run, and `_check_paths` reads a tool's result schema statically. There is no
+  second declared signature to be co- or contravariant *against*, so the phrase in "The check"
+  describes what those existing rules do rather than a rule to add.
+
+**`lila check` now visibly does two jobs.** A bare file no longer verifies tool names or a
+`$.` path against a tool's result schema, because a call is the skill's own name. That is not
+a regression to patch — it is the two checks separating. See "Splitting `lila check`" in Later.
 
 ## Later
 
 Out of scope for the thin slice. Recorded so the reasoning is not re-derived.
+
+### Splitting `lila check`
+
+`check()` answers two questions at once, and task 4 made the seam visible: with a call
+naming nothing an adapter owns, a skill file on its own can no longer say which tool it
+reaches, so the same command means different things depending on whether an install
+answered.
+
+| | Asks | Needs | Who runs it |
+|---|---|---|---|
+| **Well-formed** | is this a valid skill? ids unique, edges land, every node reachable and able to reach `end`, required fields present, `$.` paths resolve against declared schemas | the file | an author, in a repo with no install; CI for a skills repo |
+| **Bound** | will this run *here*? every resource bound, every call mapped, every mapping a real tool, paths against tool result schemas | config + registry | an installer, after editing `[[skill]]`; the first half of a run |
+
+They fail for different people. The first is the publisher's bug, fixed by editing the
+skill; the second is the install's, fixed by editing one line of config — the distinction
+the mapping decision rests on, so the checks that find them should not be one command with
+an optional argument.
+
+The second also takes the instantiation, not the skill, since bindings hang off `[[skill]]`
+and one skill can be instantiated twice with different maps. So its target is a name, and
+`lila check <file>` and `lila check <instantiation>` are checking different objects — which
+is the clearest sign these are two commands.
+
+Shape, when it lands: `check(graph)` stays pure and file-only; the bound rules move behind
+a second entry point taking the graph plus what the install knows. Spelling is open —
+`lila check <file>` and `lila verify <name>`, or one command with a subcommand. Worth
+deciding alongside `--bind` at the call site ([20260831](20260831-binding-resource-instances.md) D),
+since both are about naming a target that config already describes.
+
+`run_command` calls both, in order: a graph must be well-formed before asking whether it is
+bound.
 
 ### Versioning what a run actually used
 

@@ -20,7 +20,16 @@ import yaml
 
 from lila.ext import ToolName, TypeRef
 from lila.model import GenerateOptions, Message, Model, Usage
-from lila.resources import ArgName, Instance, Registry, ResourceName, SkillName, SkillRef
+from lila.resources import (
+    ArgName,
+    Bound,
+    LocalName,
+    Registry,
+    ResourceError,
+    ResourceName,
+    SkillName,
+    SkillRef,
+)
 from lila.values import Json, JsonSchema, Yaml
 
 # region names
@@ -224,8 +233,26 @@ class ToolConfig:
     """
 
     resource: ResourceName | None  # declared in the graph's ``resources:``; None is pure
-    call: ToolName  # a tool on that resource's type, or a pure tool's full member ref
+    # This skill's own name for the call, mapped to a tool by the binding. A pure tool
+    # belongs to no resource and nothing binds it, so there ``call:`` is a full member ref.
+    call: LocalName
     args: dict[ArgName, Compiled] = field(default_factory=dict)  # paths resolve per call
+
+
+@dataclass(frozen=True, slots=True)
+class ChildResource:
+    """What one resource of a child graph is filled from: a resource of the parent's,
+    and — for a separately authored child — how its call names line up with the parent's.
+
+    Both sides are local names, which is why this is written in the graph rather than by
+    the install: the parent's author picked this child and reads its vocabulary. An
+    inline child shares the parent's vocabulary by construction and renames nothing.
+    """
+
+    source: ResourceName  # the parent's name for it, from ``from:``
+    # child's call name -> parent's call name. None inherits the parent's map, which is
+    # only ever right for an inline child.
+    tools: dict[LocalName, LocalName] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,8 +262,8 @@ class SkillRunConfig:
     ref: SkillRef | None = None  # exactly one of ref:/graph: — resolved at run time
     graph: Graph | None = None  # exactly one of ref:/graph: — inlined at load
     input: dict[ArgName, Compiled] = field(default_factory=dict)  # becomes the child's ``$.input``
-    # child resource name -> parent resource name; a handle crosses by name, never as a value
-    resources: dict[ResourceName, ResourceName] = field(default_factory=dict)
+    # child resource name -> what fills it; a handle crosses by name, never as a value
+    resources: dict[ResourceName, ChildResource] = field(default_factory=dict)
     # A path to a list: the node runs one child per item, ``$.each``, and outputs the
     # list of their outputs. Fan-out lives in one node, so the run loop stays linear.
     for_each: Path | None = None
@@ -470,15 +497,60 @@ def _load_tool(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> ToolConf
     return ToolConfig(resource=resource, call=call, args=args)
 
 
+def _child_resource(
+    value: Yaml, name: ResourceName, node_id: NodeId, inline: bool
+) -> ChildResource:
+    """One entry of a ``skill.run`` node's ``resources:``, in the form its child takes.
+
+    A bare name inherits the parent's map, which only an inline child may do — it is the
+    same skill file. A separately authored child renames, since its call names are its
+    own and letting them fall through would quietly make them the parent's.
+
+    Raises:
+        GraphError: the form does not match the kind of child, ``from:`` is missing or
+            is not a resource name, or a rename is not a name-to-name mapping.
+    """
+    if isinstance(value, str) and not is_path(value):
+        if not inline:
+            raise GraphError(
+                f"resources.{name}: a ref: child renames — write "
+                f"{{ from: {value}, tools: {{ <its name>: <yours> }} }}",
+                node_id=node_id,
+            )
+        return ChildResource(source=value)
+    if not isinstance(value, dict):
+        raise GraphError(f"resources.{name} must name a declared resource", node_id=node_id)
+    if inline:
+        raise GraphError(
+            f"resources.{name}: an inline graph: shares this graph's names, so it "
+            "renames nothing — write the parent's resource name on its own",
+            node_id=node_id,
+        )
+    source = value.get("from")
+    if not isinstance(source, str) or is_path(source):
+        raise GraphError(f"resources.{name}.from must name a declared resource", node_id=node_id)
+    tools: dict[LocalName, LocalName] = {}
+    for child_call, parent_call in _require_mapping(
+        value.get("tools", {}), f"resources.{name}.tools:", node_id
+    ).items():
+        if not isinstance(parent_call, str) or is_path(parent_call):
+            raise GraphError(
+                f"resources.{name}.tools.{child_call} must name a call this graph makes",
+                node_id=node_id,
+            )
+        tools[child_call] = parent_call
+    return ChildResource(source=source, tools=tools)
+
+
 def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> SkillRunConfig:
     """Load a ``skill.run`` node's config, parsing an inline ``graph:`` if present.
 
     ``ref`` is the enclosing graph's, and an inline child is identified under it.
 
     Raises:
-        GraphError: not exactly one of ref:/graph:, a bad ref:, a non-path in
-            resources:, a malformed inline graph, or an inline graph whose resources:
-            list does not match the names this node maps.
+        GraphError: not exactly one of ref:/graph:, a bad ref:, a resources: entry in
+            the wrong form for this kind of child, a malformed inline graph, or an
+            inline graph whose resources: list does not match the names this node maps.
     """
     child_ref, inline = raw.get("ref"), raw.get("graph")
     if (child_ref is None) == (inline is None):
@@ -491,11 +563,9 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> Ski
         else None
     )
     node_input = compile_mapping(_require_json_mapping(raw.get("input", {}), "input:", node_id))
-    resources: dict[ResourceName, ResourceName] = {}
+    resources: dict[ResourceName, ChildResource] = {}
     for name, value in _require_mapping(raw.get("resources", {}), "resources:", node_id).items():
-        if not isinstance(value, str) or is_path(value):
-            raise GraphError(f"resources.{name} must name a declared resource", node_id=node_id)
-        resources[name] = value
+        resources[name] = _child_resource(value, name, node_id, inline=graph is not None)
     if graph is not None and set(graph.resources) != set(resources):
         raise GraphError(
             f"inline graph: needs {sorted(graph.resources)}, this node maps {sorted(resources)}",
@@ -678,14 +748,14 @@ class RunMemory:
     """
 
     def __init__(
-        self, run_input: Json, resources: Mapping[ResourceName, Instance] | None = None
+        self, run_input: Json, resources: Mapping[ResourceName, Bound] | None = None
     ) -> None:
         """Seed ``$.input`` with the run input and hold the resources bound for the run."""
         self._history: dict[NodeId, list[Json]] = {"input": [run_input]}
-        self._resources: dict[ResourceName, Instance] = dict(resources or {})
+        self._resources: dict[ResourceName, Bound] = dict(resources or {})
 
     @property
-    def resources(self) -> Mapping[ResourceName, Instance]:
+    def resources(self) -> Mapping[ResourceName, Bound]:
         """Resources bound for this run, by the name the graph declared."""
         return self._resources
 
@@ -980,8 +1050,8 @@ def _validate(value: Json, schema: JsonSchema | None, what: str, node_id: NodeId
 
 
 def bind_resources(
-    graph: Graph, resources: Mapping[ResourceName, Instance]
-) -> dict[ResourceName, Instance]:
+    graph: Graph, resources: Mapping[ResourceName, Bound]
+) -> dict[ResourceName, Bound]:
     """Resolve every declared resource once, at run start.
 
     An inline subgraph names what it needs but not the type: its node's ``resources:``
@@ -990,14 +1060,14 @@ def bind_resources(
     Raises:
         RunError: a resource is unbound or bound to an instance of another type.
     """
-    bound: dict[ResourceName, Instance] = {}
+    bound: dict[ResourceName, Bound] = {}
     for name, type_ref in graph.resources.items():
-        instance = resources.get(name)
-        if instance is None:
+        resource = resources.get(name)
+        if resource is None:
             raise RunError(f"resource {name!r} is unbound")
-        if type_ref is not None and instance.type != type_ref:
-            raise RunError(f"resource {name!r} wants {type_ref}, bound to {instance.type}")
-        bound[name] = instance
+        if type_ref is not None and resource.instance.type != type_ref:
+            raise RunError(f"resource {name!r} wants {type_ref}, bound to {resource.instance.type}")
+        bound[name] = resource
     return bound
 
 
@@ -1005,7 +1075,7 @@ async def run(
     graph: Graph,
     run_input: dict[ArgName, Json],
     context: RunContext,
-    resources: Mapping[ResourceName, Instance] | None = None,
+    resources: Mapping[ResourceName, Bound] | None = None,
     name: SkillName | None = None,
 ) -> RunResult:
     """Execute a graph. A nested run is this same function with a fresh memory.
@@ -1128,6 +1198,32 @@ async def llm_handler(call: NodeCall) -> NodeResult:
     )
 
 
+def _child_bound(
+    parent: Bound, child_name: ResourceName, child_resource: ChildResource, node_id: NodeId
+) -> Bound:
+    """One resource as the child sees it: the parent's instance, under the child's names.
+
+    Each rename resolves through the parent's own map, so what reaches the child is
+    already an adapter tool name and the same step composes to any depth. The child can
+    reach nothing the parent was not itself granted.
+
+    Raises:
+        RunError: a rename names a call the parent does not have.
+    """
+    if child_resource.tools is None:
+        return parent
+    tools: dict[LocalName, ToolName] = {}
+    for child_call, parent_call in child_resource.tools.items():
+        try:
+            tools[child_call] = parent.tool(parent_call)
+        except ResourceError as exc:
+            raise RunError(
+                f"resources.{child_name}.tools.{child_call} names {parent_call!r}: {exc}",
+                node_id=node_id,
+            ) from exc
+    return Bound(instance=parent.instance, tools=tools)
+
+
 async def skill_run_handler(call: NodeCall) -> NodeResult:
     """Run a nested graph with a fresh memory built only from input:/resources:.
 
@@ -1136,8 +1232,8 @@ async def skill_run_handler(call: NodeCall) -> NodeResult:
 
     Raises:
         RunError: ``ref:`` needs a resolver that is not bound, a ``resources:`` entry
-            names something the parent did not declare, ``for_each:`` does not name a
-            list, or a child run fails.
+            names something the parent did not declare or renames a call the parent does
+            not have, ``for_each:`` does not name a list, or a child run fails.
     """
     node = call.node
     config = node.config
@@ -1149,15 +1245,16 @@ async def skill_run_handler(call: NodeCall) -> NodeResult:
         assert config.ref is not None
         child_graph = call.context.skills(config.ref)
     # The isolation rule falls out of not passing the parent's objects down.
-    child_resources: dict[ResourceName, Instance] = {}
-    for child_name, parent_name in config.resources.items():
-        instance = call.memory.resources.get(parent_name)
-        if instance is None:
+    child_resources: dict[ResourceName, Bound] = {}
+    for child_name, child_resource in config.resources.items():
+        parent = call.memory.resources.get(child_resource.source)
+        if parent is None:
             raise RunError(
-                f"resources.{child_name} names {parent_name!r}, which this graph does not declare",
+                f"resources.{child_name} names {child_resource.source!r}, "
+                "which this graph does not declare",
                 node_id=node.id,
             )
-        child_resources[child_name] = instance
+        child_resources[child_name] = _child_bound(parent, child_name, child_resource, node.id)
 
     if config.for_each is None:
         child_input = call.memory.resolve_mapping(config.input)

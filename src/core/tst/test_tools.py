@@ -14,7 +14,7 @@ import yaml
 
 from lila.adapters import load
 from lila.executor import Graph, RunContext, RunError, parse_graph, run
-from lila.resources import Instance, Registry
+from lila.resources import Bound, Instance, Registry
 from lila.tools import default_handlers
 
 # region fixtures
@@ -33,7 +33,7 @@ nodes:
   - id: fetch
     type: tool
     resource: inbox
-    call: get_message
+    call: read
     args: { id: $.input.message_id }
 edges:
   - { from: fetch, to: end }
@@ -52,7 +52,7 @@ nodes:
   - id: joined
     type: tool
     resource: text
-    call: join
+    call: combine
     args: { items: $.input.items, sep: "-" }
 edges:
   - { from: joined, to: end }
@@ -109,9 +109,18 @@ def context(registry: Registry) -> RunContext:
     return RunContext(handlers=default_handlers(), registry=registry)
 
 
-def bound(registry: Registry, name: str, instance: str) -> dict[str, Instance]:
-    """One resource name bound to one configured instance."""
-    return {name: registry.instance(instance)}
+# What the graphs above call the fixture adapter's tools. Every name in a graph is the
+# skill's own, so the map is what makes any of them reach a tool at all.
+TOOLS: dict[str, dict[str, str]] = {
+    "test/fixture/mailbox": {"read": "get_message", "list": "list_messages"},
+    "test/fixture/text": {"combine": "join"},
+}
+
+
+def bound(registry: Registry, name: str, instance: str) -> dict[str, Bound]:
+    """One resource name bound to one configured instance, under the graphs' call names."""
+    found = registry.instance(instance)
+    return {name: Bound(instance=found, tools=TOOLS[found.type])}
 
 
 # endregion
@@ -196,15 +205,30 @@ async def test_tool_handler__raises_run_error_naming_the_node_when_the_tool_fail
     assert caught.value.node_id == "fetch"
 
 
-async def test_tool_handler__raises_run_error_when_the_type_has_no_such_tool(
+async def test_tool_handler__raises_run_error_when_the_binding_maps_no_tool_to_the_call(
     graph_from: GraphFactory, context: RunContext, registry: Registry
 ) -> None:
-    # prepare
-    graph = graph_from(FETCH_GRAPH.replace("call: get_message", "call: burn_inbox"))
+    # prepare — the map is the grant, so a call it does not name reaches nothing
+    graph = graph_from(FETCH_GRAPH.replace("call: read", "call: burn_inbox"))
+
+    # act / verify
+    with pytest.raises(RunError, match="not bound to a tool for 'burn_inbox'") as caught:
+        await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
+    assert caught.value.node_id == "fetch"
+
+
+async def test_tool_handler__raises_run_error_when_a_mapping_names_no_tool_on_the_type(
+    graph_from: GraphFactory, context: RunContext, registry: Registry
+) -> None:
+    # prepare — what an adapter renaming a tool out from under an install looks like
+    graph = graph_from(FETCH_GRAPH)
+    resources = {
+        "inbox": Bound(instance=registry.instance("fake-inbox"), tools={"read": "burn_inbox"})
+    }
 
     # act / verify
     with pytest.raises(RunError, match="no tool 'burn_inbox'") as caught:
-        await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
+        await run(graph, {"message_id": "7"}, context, resources)
     assert caught.value.node_id == "fetch"
 
 
@@ -213,13 +237,13 @@ async def test_tool_handler__raises_run_error_when_args_do_not_fit_the_tool_sche
 ) -> None:
     # prepare — list_messages takes an integer limit
     graph = graph_from(
-        FETCH_GRAPH.replace("call: get_message", "call: list_messages").replace(
+        FETCH_GRAPH.replace("call: read", "call: list").replace(
             "args: { id: $.input.message_id }", "args: { limit: $.input.message_id }"
         )
     )
 
     # act / verify
-    with pytest.raises(RunError, match="args failed list_messages schema"):
+    with pytest.raises(RunError, match="args failed list -> list_messages schema"):
         await run(graph, {"message_id": "7"}, context, bound(registry, "inbox", "fake-inbox"))
 
 

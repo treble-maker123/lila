@@ -15,7 +15,7 @@ nodes:
   - id: fetch
     type: tool
     resource: inbox
-    call: get_message
+    call: read
     args: { id: $.input.message_id }
 
 edges:

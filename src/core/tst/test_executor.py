@@ -37,7 +37,7 @@ from lila.executor import (
     skill_run_handler,
 )
 from lila.model import GenerateEvent, GenerateOptions, Message, Model, TextChunk, Usage
-from lila.resources import Instance, SkillRef
+from lila.resources import Bound, Instance, SkillRef
 from lila.values import Json
 
 # region fixtures
@@ -75,9 +75,12 @@ class FakeHandle:
     """Stands in for an adapter's own resource object; the loop never looks inside."""
 
 
-def instance(name: str = "fake-inbox", type_ref: str = MAILBOX) -> Instance:
-    """One configured resource, as an install would have built it."""
-    return Instance(name=name, type=type_ref, handle=FakeHandle())
+def instance(name: str = "fake-inbox", type_ref: str = MAILBOX) -> Bound:
+    """One resource as a run holds it: a configured instance, under this graph's names."""
+    return Bound(
+        instance=Instance(name=name, type=type_ref, handle=FakeHandle()),
+        tools={"get_message": "get_message"},
+    )
 
 
 def echo_handler(value: Json) -> Handler:
@@ -407,6 +410,43 @@ def test_parse_graph__normalizes_graph_run_to_skill_run(graph_from: GraphFactory
     # verify
     assert graph.nodes[0].type == "skill.run"
     assert isinstance(graph.nodes[0].config, SkillRunConfig)
+
+
+def test_parse_graph__raises_when_a_ref_child_takes_a_resource_without_renaming(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — a bare name would make the child's call names the parent's
+    with pytest.raises(GraphError, match="a ref: child renames"):
+        graph_from("""
+            entry: child
+            nodes:
+              - { id: child, type: skill.run, ref: other/thing, resources: { box: inbox } }
+            edges:
+              - { from: child, to: end }
+            """)
+
+
+def test_parse_graph__raises_when_an_inline_child_renames_a_call(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — an inline graph is the same file, so it shares these names already
+    with pytest.raises(GraphError, match="renames nothing"):
+        graph_from("""
+            entry: child
+            nodes:
+              - id: child
+                type: skill.run
+                resources: { box: { from: inbox, tools: { read: fetch } } }
+                graph:
+                  resources: [box]
+                  entry: work
+                  nodes:
+                    - { id: work, type: tool, resource: box, call: read }
+                  edges:
+                    - { from: work, to: end }
+            edges:
+              - { from: child, to: end }
+            """)
 
 
 def test_parse_graph__keeps_comments_when_the_author_left_them(graph_from: GraphFactory) -> None:
@@ -1120,7 +1160,7 @@ async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_reso
         assert config.resource is not None
         handle = call.memory.resources.get(config.resource)
         assert handle is not None
-        return NodeResult(output={"instance": handle.name})
+        return NodeResult(output={"instance": handle.instance.name})
 
     context = RunContext(handlers={"skill.run": skill_run_handler, "tool": tool})
 
@@ -1156,6 +1196,77 @@ async def test_skill_run__raises_run_error_when_a_mapped_resource_is_not_declare
     # act / verify
     with pytest.raises(RunError, match="does not declare"):
         await run(parent, {}, context)
+
+
+REF_PARENT = """
+resources: { inbox: test/fixture/mailbox }
+entry: gather
+nodes:
+  - id: gather
+    type: skill.run
+    ref: test/summarize
+    resources:
+      box: { from: inbox, tools: { read: fetch } }
+    input: {}
+edges:
+  - { from: gather, to: end }
+return: { tool: $.gather.tool }
+"""
+
+REF_CHILD = """
+resources: { box: test/fixture/mailbox }
+entry: work
+nodes:
+  - { id: work, type: tool, resource: box, call: read, args: {} }
+edges:
+  - { from: work, to: end }
+return: { tool: $.work.tool }
+"""
+
+
+async def test_skill_run__resolves_a_ref_childs_own_call_names_through_the_parents_map(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — the child owns `read`, the parent owns `fetch`, the install owns the tool
+    parent = graph_from(REF_PARENT)
+    child = graph_from(REF_CHILD)
+    parent_bound = Bound(
+        instance=Instance(name="fake-inbox", type=MAILBOX, handle=FakeHandle()),
+        tools={"fetch": "list_messages"},
+    )
+
+    async def tool(call: NodeCall) -> NodeResult:
+        config = call.node.config
+        assert isinstance(config, ToolConfig)
+        assert config.resource is not None
+        held = call.memory.resources.get(config.resource)
+        assert held is not None
+        return NodeResult(output={"tool": held.tool(config.call)})
+
+    context = RunContext(
+        handlers={"skill.run": skill_run_handler, "tool": tool}, skills=lambda _: child
+    )
+
+    # act
+    result = await run(parent, {}, context, {"inbox": parent_bound})
+
+    # verify — what reaches the child is already an adapter tool name
+    assert result.output == {"tool": "list_messages"}
+
+
+async def test_skill_run__raises_run_error_when_a_rename_names_a_call_the_parent_lacks(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare — a child cannot reach what its parent was not itself granted
+    parent = graph_from(REF_PARENT)
+    child = graph_from(REF_CHILD)
+    context = RunContext(
+        handlers={"skill.run": skill_run_handler, "tool": echo_handler({})}, skills=lambda _: child
+    )
+
+    # act / verify
+    with pytest.raises(RunError, match=r"resources.box.tools.read names 'fetch'"):
+        await run(parent, {}, context, {"inbox": instance()})
 
 
 MAP_PARENT = """

@@ -1,7 +1,8 @@
 """The ``tool`` node handler — the one path every tool call takes.
 
-Four steps, no per-provider branching: resolve ``resource:`` to the bound instance, look
-up ``call:`` in that resource type's tools, validate args, call and validate the result.
+Four steps, no per-provider branching: resolve ``resource:`` to the bound instance,
+translate ``call:`` — the skill's own name — through the binding and look the tool up on
+that resource type, validate args, call and validate the result.
 Transport lives inside the tool's implementation (lila.ext), so an IMAP fetch, an HTTP
 call, and a pure transform all arrive here the same way.
 """
@@ -35,43 +36,48 @@ async def tool_handler(call: NodeCall) -> NodeResult:
     A node with no ``resource:`` calls a pure tool, which is passed no handle.
 
     Raises:
-        RunError: the resource is unbound, no registry is bound, the tool does not
-            exist, the args do not fit its schema, or the tool itself failed.
+        RunError: the resource is unbound, no registry is bound, the binding maps no
+            tool to the call, the tool does not exist, the args do not fit its schema,
+            or the tool itself failed.
     """
     node = call.node
     config = node.config
     assert isinstance(config, ToolConfig)
     if call.context.registry is None:
         raise RunError("no registry bound; nothing defines tools", node_id=node.id)
-    instance = None
+    bound = None
     if config.resource is not None:
-        instance = call.memory.resources.get(config.resource)
-        if instance is None:
+        bound = call.memory.resources.get(config.resource)
+        if bound is None:
             raise RunError(f"resource {config.resource!r} is not bound", node_id=node.id)
     try:
+        # ``call:`` is the skill's own name; the binding says which tool it reaches.
+        called = config.call if bound is None else bound.tool(config.call)
         tool = (
-            call.context.registry.pure_tool(config.call)
-            if instance is None
-            else call.context.registry.tool(instance.type, config.call)
+            call.context.registry.pure_tool(called)
+            if bound is None
+            else call.context.registry.tool(bound.instance.type, called)
         )
     except ResourceError as exc:
         raise RunError(str(exc), node_id=node.id) from exc
+    # Diagnostics name both halves: the reader's own name, and what it reached.
+    named = called if called == config.call else f"{config.call} -> {called}"
 
     args = call.memory.resolve_mapping(config.args)
     try:
         jsonschema.validate(args, tool.args)
     except jsonschema.ValidationError as exc:
-        raise RunError(f"args failed {config.call} schema: {exc.message}", node_id=node.id) from exc
+        raise RunError(f"args failed {named} schema: {exc.message}", node_id=node.id) from exc
 
-    handle = () if instance is None else (instance.handle,)
+    handle = () if bound is None else (bound.instance.handle,)
     returned = await _invoke(tool.run, handle, args, node.id)
-    output = _as_json(returned, config.call, node.id)
+    output = _as_json(returned, named, node.id)
     if tool.result is not None:
         try:
             jsonschema.validate(output, tool.result)
         except jsonschema.ValidationError as exc:
             raise RunError(
-                f"{config.call} returned something its schema rejects: {exc.message}",
+                f"{named} returned something its schema rejects: {exc.message}",
                 node_id=node.id,
             ) from exc
     used = () if config.resource is None else (config.resource,)

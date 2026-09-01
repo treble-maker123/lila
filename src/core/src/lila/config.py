@@ -14,11 +14,14 @@ from dataclasses import dataclass, field
 from pathlib import Path as FilePath
 
 from lila.executor import ModelAlias
-from lila.ext import ConfigField, TypeRef, config_fields
+from lila.ext import ConfigField, ToolName, TypeRef, config_fields
 from lila.model import DEFAULT_OLLAMA_HOST, Model, OllamaModel
 from lila.resources import (
+    Binding,
+    Bound,
     Instance,
     InstanceName,
+    LocalName,
     Registry,
     ResourceName,
     SkillName,
@@ -81,7 +84,7 @@ class SkillConfig:
     name: SkillName  # the run target
     source: SkillRef  # the skill it instantiates
     enabled: bool = True  # nothing runs skills on its own yet, so this gates nothing
-    bindings: dict[ResourceName, InstanceName] = field(default_factory=dict)
+    bindings: dict[ResourceName, Binding] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,20 +163,36 @@ def _flag(raw: dict[str, object], key: str, what: str, default: bool) -> bool:
     return value
 
 
-def _bindings(raw: dict[str, object], what: str) -> dict[ResourceName, InstanceName]:
-    """The ``resources`` sub-table of one instantiation: local name -> instance.
+def _tools(raw: dict[str, object], what: str) -> dict[LocalName, ToolName]:
+    """One resource's ``tools`` sub-table: the skill's call name -> the type's tool.
+
+    Nested rather than bare pairs beside ``instance``, so a tool named ``instance`` is
+    spellable and no key is reserved.
+
+    Raises:
+        ConfigError: ``tools`` or one of its entries is not a string table.
+    """
+    table = _table(raw.get("tools", {}), f"{what}.tools")
+    return {key: _text(table, key, f"{what}.tools") for key in table}
+
+
+def _bindings(raw: dict[str, object], what: str) -> dict[ResourceName, Binding]:
+    """The ``resources`` sub-table of one instantiation: local name -> what fills it.
 
     Dotted keys inside the ``[[skill]]`` block, so a binding cannot drift onto a
     neighboring array element the way a ``[skill.<name>]`` header can.
 
     Raises:
-        ConfigError: ``resources`` or one of its entries is not a table, or an entry
-            names no instance.
+        ConfigError: ``resources`` or one of its entries is not a table, an entry names
+            no instance, or a tool mapping is not a string.
     """
-    bindings: dict[ResourceName, InstanceName] = {}
+    bindings: dict[ResourceName, Binding] = {}
     for key, value in _table(raw.get("resources", {}), f"{what}.resources").items():
         table = _table(value, f"{what}.resources.{key}")
-        bindings[key] = _text(table, "instance", f"{what}.resources.{key}")
+        bindings[key] = Binding(
+            instance=_text(table, "instance", f"{what}.resources.{key}"),
+            tools=_tools(table, f"{what}.resources.{key}"),
+        )
     return bindings
 
 
@@ -411,8 +430,8 @@ def skill_bindings(
     config: InstallConfig,
     skill: SkillName | None,
     registry: Registry,
-) -> dict[ResourceName, Instance]:
-    """Resolve one instantiation's declared resource names to instances.
+) -> dict[ResourceName, Bound]:
+    """Resolve one instantiation's declared resource names to instances and tool maps.
 
     Raises:
         ConfigError: no instantiation goes by that name, or the run named none at all.
@@ -421,7 +440,10 @@ def skill_bindings(
     skill_config = config.skills.get(skill) if skill is not None else None
     if skill_config is None:
         raise ConfigError(f"no [[skill]] named {skill!r}; nothing to bind its resources to")
-    return {name: registry.instance(binding) for name, binding in skill_config.bindings.items()}
+    return {
+        name: Bound(instance=registry.instance(binding.instance), tools=dict(binding.tools))
+        for name, binding in skill_config.bindings.items()
+    }
 
 
 # endregion

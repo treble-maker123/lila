@@ -26,7 +26,7 @@ from lila.config import (
     skills_path,
 )
 from lila.model import OllamaModel
-from lila.resources import Registry, ResourceError
+from lila.resources import Binding, Bound, Instance, Registry, ResourceError
 
 # region fixtures
 
@@ -48,7 +48,7 @@ secrets = { token = "LILA_INBOX_TOKEN" }
 [[skill]]
 name = "morning-digest"
 source = "test/email-digest"
-resources.inbox = { instance = "fake-inbox" }
+resources.inbox = { instance = "fake-inbox", tools = { read = "get_message" } }
 """
 
 
@@ -85,7 +85,9 @@ def test_parse_config__reads_models_resources_and_skills_when_all_sections_prese
     assert parsed.resources["fake-inbox"].settings["host"] == "mail.example.com"
     assert parsed.resources["fake-inbox"].secrets == {"token": "LILA_INBOX_TOKEN"}
     assert parsed.skills["morning-digest"].source == "test/email-digest"
-    assert parsed.skills["morning-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["morning-digest"].bindings == {
+        "inbox": Binding(instance="fake-inbox", tools={"read": "get_message"})
+    }
 
 
 def test_parse_config__defaults_the_backend_to_ollama_when_unset(config: ConfigFactory) -> None:
@@ -127,7 +129,27 @@ def test_parse_config__binds_a_resource_named_like_a_skill_field(config: ConfigF
     )
 
     # verify
-    assert parsed.skills["d"].bindings == {"enabled": "fake-inbox"}
+    assert parsed.skills["d"].bindings == {"enabled": Binding(instance="fake-inbox")}
+
+
+def test_parse_config__binds_a_tool_named_like_a_binding_field(config: ConfigFactory) -> None:
+    # prepare / act — `tools` is nested, so `instance` is spellable as a call name
+    parsed = config(
+        '[[skill]]\nname = "d"\nsource = "s"\n'
+        'resources.inbox = { instance = "fake-inbox", tools = { instance = "get_message" } }\n'
+    )
+
+    # verify
+    assert parsed.skills["d"].bindings["inbox"].tools == {"instance": "get_message"}
+
+
+def test_parse_config__raises_when_a_tool_mapping_is_not_a_string(config: ConfigFactory) -> None:
+    # act / verify
+    with pytest.raises(ConfigError, match=r"skill.d.resources.inbox.tools.read must be a string"):
+        config(
+            '[[skill]]\nname = "d"\nsource = "s"\n'
+            'resources.inbox = { instance = "fake-inbox", tools = { read = 7 } }\n'
+        )
 
 
 def test_parse_config__raises_when_a_resource_binding_is_not_a_table(
@@ -172,7 +194,7 @@ def test_load_config__reads_a_file_when_it_exists(tmp_path: Path) -> None:
     parsed = load_config(path)
 
     # verify
-    assert parsed.skills["morning-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["morning-digest"].bindings["inbox"].instance == "fake-inbox"
 
 
 def test_find_home__walks_up_to_the_nearest_install(
@@ -413,7 +435,8 @@ def test_skill_bindings__maps_a_skills_resources_to_configured_instances(
     bound = skill_bindings(parsed, "morning-digest", built)
 
     # verify
-    assert bound["inbox"].name == "fake-inbox"
+    assert bound["inbox"].instance.name == "fake-inbox"
+    assert bound["inbox"].tools == {"read": "get_message"}
 
 
 def test_skill_bindings__raises_when_nothing_goes_by_that_name(
@@ -443,6 +466,29 @@ def test_skill_bindings__raises_when_a_name_is_bound_to_nothing(
     # act / verify
     with pytest.raises(ResourceError, match="no resource configured as 'nowhere'"):
         skill_bindings(parsed, "morning-digest", build_instances(parsed, registry))
+
+
+def test_bound_tool__raises_naming_what_the_install_did_map(
+    config: ConfigFactory,
+    registry: Registry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # prepare — the grant is the map, so an unmapped call reaches nothing
+    monkeypatch.setenv("LILA_INBOX_TOKEN", "app-password")
+    parsed = config(FULL_CONFIG)
+    bound = skill_bindings(parsed, "morning-digest", build_instances(parsed, registry))
+
+    # act / verify
+    with pytest.raises(ResourceError, match=r"not bound to a tool for 'archive'.*\['read'\]"):
+        bound["inbox"].tool("archive")
+
+
+def test_bound_tool__returns_the_tool_one_local_name_was_mapped_to() -> None:
+    # prepare
+    bound = Bound(instance=Instance(name="i", type=MAILBOX, handle=None), tools={"read": "get"})
+
+    # act / verify
+    assert bound.tool("read") == "get"
 
 
 # endregion

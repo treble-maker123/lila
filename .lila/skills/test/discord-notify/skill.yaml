@@ -23,7 +23,7 @@ nodes:
   - id: post
     type: tool
     resource: alerts
-    call: post_message
+    call: send                 # this skill's name for it; the install says which tool
     args:
       content: $.input.note
 

@@ -18,6 +18,7 @@ from lila.ext import Tool, ToolName, TypeRef
 # The lower half of the name vocabulary; lila.executor re-exports these with its own.
 type ResourceName = str  # what a graph calls a resource it needs, e.g. ``inbox``
 type InstanceName = str  # a configured instance, e.g. ``gmail-personal``
+type LocalName = str  # a skill's own name for a call it makes, e.g. ``fetch``
 type ArgName = str  # key in a call's args mapping
 type SkillRef = str  # ``<namespace>/<name>``, or a path
 type SkillName = str  # what an install calls one instantiation of a skill
@@ -36,6 +37,48 @@ class Instance:
     name: InstanceName
     type: TypeRef  # the resource type it was built from
     handle: object  # the adapter's own dataclass instance, passed to its tools
+
+
+@dataclass(frozen=True, slots=True)
+class Binding:
+    """What an install says fills one resource a skill declares: an instance, and which
+    of its tools the skill's own call names reach.
+
+    The skill file names calls in its own vocabulary, so nothing an adapter owns is
+    written in it. This is where the two vocabularies meet, and it is the complete grant:
+    a tool the skill does not map is not reachable through this resource. ``Bound`` is
+    this with the instance resolved.
+    """
+
+    instance: InstanceName
+    tools: dict[LocalName, ToolName] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class Bound:
+    """One resource a run holds: the instance, and this skill's names for its tools.
+
+    The map is the complete list of what the skill may do to the instance — a call it
+    does not name is not reachable. It belongs to the run rather than to the instance,
+    since two skills bound to one mailbox name its tools however they like.
+    """
+
+    instance: Instance
+    tools: dict[LocalName, ToolName] = field(default_factory=dict)
+
+    def tool(self, call: LocalName) -> ToolName:
+        """The adapter tool one local call name was mapped to.
+
+        Raises:
+            ResourceError: the binding does not map that name.
+        """
+        found = self.tools.get(call)
+        if found is None:
+            raise ResourceError(
+                f"{self.instance.name} is not bound to a tool for {call!r}; "
+                f"this skill maps {sorted(self.tools)}"
+            )
+        return found
 
 
 @dataclass(slots=True)
@@ -95,27 +138,3 @@ class Registry:
     def tools_of(self, type_ref: TypeRef) -> dict[ToolName, Tool]:
         """Every tool defined over one resource type."""
         return {name: tool for (ref, name), tool in self.tools.items() if ref == type_ref}
-
-    def bind(
-        self,
-        declared: dict[ResourceName, TypeRef],
-        bindings: dict[ResourceName, InstanceName],
-    ) -> dict[ResourceName, Instance]:
-        """Map a skill's declared resources to instances, refusing unbound or mis-typed.
-
-        Raises:
-            ResourceError: a name has no binding, names an unconfigured instance, or
-                the instance is of a different type.
-        """
-        bound: dict[ResourceName, Instance] = {}
-        for name, type_ref in declared.items():
-            binding = bindings.get(name)
-            if binding is None:
-                raise ResourceError(f"resource {name!r} is unbound")
-            found = self.instance(binding)
-            if found.type != type_ref:
-                raise ResourceError(
-                    f"resource {name!r} wants {type_ref}, {binding!r} is {found.type}"
-                )
-            bound[name] = found
-        return bound

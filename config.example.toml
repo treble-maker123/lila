@@ -108,6 +108,13 @@ secrets = { token = "LILA_DISCORD_TOKEN" }
 # until each is bound. Two instantiations can point `inbox` at different mailboxes, and
 # one skill can declare two resources — read from `inbox`, post to `notify`.
 #
+# `tools` maps the skill's own call names to the tools the instance really has. A skill
+# file says `call: fetch` and never `call: list_messages`, so it carries no name an
+# adapter owns: an adapter renaming a tool is one line to fix here, in your own config,
+# rather than an edit to someone else's repo. The map is also the whole grant — a tool
+# not listed cannot be reached through this resource — and it must cover every call the
+# skill makes, including the ones its inline subgraphs make.
+#
 # These are dotted keys *inside* the [[skill]] block, not [skill.inbox] headers: a
 # separate header attaches to whichever [[skill]] came last, so moving it silently
 # rebinds it to another skill. One line per resource, an inline table each.
@@ -122,19 +129,22 @@ secrets = { token = "LILA_DISCORD_TOKEN" }
 name = "morning-digest"
 source = "test/email-digest"
 enabled = true
-resources.inbox = { instance = "gmail-personal" }
+resources.inbox.instance    = "gmail-personal"
+resources.inbox.tools.fetch = "list_messages"
+resources.inbox.tools.read  = "get_message"   # the inline subgraph's call
 
 [[skill]]
 name = "deploy-notes"
 source = "test/discord-notify"
-resources.alerts = { instance = "discord-alerts" }
+resources.alerts = { instance = "discord-alerts", tools = { send = "post_message" } }
 
-# A skill with two resources, in the expanded form — this is what the split buys: the
-# skill reads from one adapter and posts to another, and neither adapter knows the other
-# exists. Uncomment once such a skill is installed.
+# A skill with two resources — this is what the split buys: the skill reads from one
+# adapter and posts to another, and neither adapter knows the other exists. Note that
+# both skills above and this one call something `fetch` or `send`; the names are each
+# skill's own, so they collide with nothing. Uncomment once such a skill is installed.
 #
 # [[skill]]
 # name = "digest-to-chat"
 # source = "test/email-to-chat"
-# resources.inbox.instance  = "gmail-personal"
-# resources.notify.instance = "discord-alerts"
+# resources.inbox  = { instance = "gmail-personal", tools = { fetch = "list_messages" } }
+# resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }

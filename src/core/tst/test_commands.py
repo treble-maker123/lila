@@ -42,7 +42,7 @@ nodes:
     resources: { inbox: inbox }
     input: { message_id: $.each }
     graph:
-      resources: { inbox: test/fixture/mailbox }
+      resources: [inbox]
       input:
         type: object
         properties: { message_id: { type: string } }

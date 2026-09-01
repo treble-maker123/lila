@@ -5,8 +5,8 @@ resource + tool binding, structural check as a lint). Skills become install-inst
 and `extensions/` splits into two manifest-free trees, `adapters/` and `skills/`, with the
 path as identity and versioning left to git. Open: how a `ref:` subgraph's binding reaches it.
 Four tasks at the bottom, scoped to a thin slice, with what they defer under "Later".
-**Tasks 1 and 2 are done**, including task 2's follow-up — bindings live inside the
-`[[skill]]` block as `resources.<name>` dotted keys; 3–4 are not started.
+**Tasks 1–3 are done**, including task 2's follow-up — bindings live inside the
+`[[skill]]` block as `resources.<name>` dotted keys; 4 is not started.
 
 ## Goal
 
@@ -379,7 +379,7 @@ First, two things we call one:
 
 | | Is | Gets |
 |---|---|---|
-| inline `graph:` under `skill.run` | a private subroutine | the parent's instance *and* mapping; declares nothing ([20260831](20260831-binding-resource-instances.md) E) |
+| inline `graph:` under `skill.run` | a private subroutine | the parent's instance *and* mapping; declares names, not type refs ([20260831](20260831-binding-resource-instances.md) E, and task 3) |
 | `skill.run` by `ref:` | a separate file, own author, own names | its own block |
 
 `digest.yaml`'s `summaries` node is row one. Its re-declared
@@ -737,7 +737,7 @@ instantiation of that ref.
 punted — so it parses, prints in listings, and gates nothing. Worth landing anyway as the
 place install-level facts go.
 
-### 3. Drop re-declared resources in inline subgraphs
+### 3. Drop re-declared resources in inline subgraphs — done
 
 20260831 E. Small and narrow, independent of 1 and 2.
 
@@ -750,6 +750,39 @@ mapped instances down without consulting the child's declarations.
 
 Doing this before 5 matters: a re-declared type ref in a child is exactly the foreign string
 the tool mapping is meant to remove.
+
+**What landed.** The child keeps saying what it needs, and stops saying what type it is:
+
+```yaml
+- id: summaries
+  type: skill.run
+  resources: { inbox: inbox }   # child's name : parent's name — the instance, and the grant
+  graph:
+    resources: [inbox]          # what the child needs, in its own names
+```
+
+`parse_graph` takes an `inline: bool`, set only where `_load_skill_run` parses a `graph:`. It
+picks the form: a mapping to type refs at the top level, a list of bare names inline, and each
+form is an error where the other belongs. `Graph.resources` becomes
+`dict[ResourceName, TypeRef | None]`, `None` being "named here, typed by the parent".
+
+The list is checked against the node: `_load_skill_run` errors unless the child's names are
+exactly the ones the node maps. So a resource the child needs and the node forgot is a load
+error naming both sides, not an unbound-resource failure mid-run.
+
+Two readers of the type ref had to tolerate a `None`. `bind_resources` skips the type check
+for an inline child — the parent already made it against the same instance — but still requires
+every declared name to arrive, which is what the load-time check guarantees. `verification`'s
+`_check_tools` splits "not declared" (still an issue) from "declared without a type" (nothing
+to check without the parent's context), and `_check_resources` needs nothing: it runs against
+bindings only at the top level. `skill_run_handler` needed no change at all; it never read the
+child's declarations.
+
+**What did *not* become implicit.** The child reaches nothing the node did not map, by name,
+one line per resource — a child handed `inbox` and not `outbox` cannot touch the outbox its
+parent holds. Only the type ref went away, and the node's mapping had already settled that. An
+"inherit everything" default, or a `resources: *`, would buy back a line at the cost of the
+isolation and of [TENETS.md](../docs/TENETS.md)'s explicit-over-implicit — not a trade to make.
 
 ### 4. Tool mapping and the bind-time check
 

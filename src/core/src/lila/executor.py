@@ -370,8 +370,9 @@ class Graph:
     # What this skill does, in one line. Public, unlike ``comment:``: install lists it,
     # and a model choosing among skills reads it.
     description: Description = ""
-    # ``resources:`` — what this skill needs, bound to instances at install
-    resources: dict[ResourceName, TypeRef] = field(default_factory=dict)
+    # ``resources:`` — what this skill needs, bound to instances at install. An inline
+    # subgraph lists bare names instead, typed by whatever its node mapped: value None.
+    resources: dict[ResourceName, TypeRef | None] = field(default_factory=dict)
     input: JsonSchema | None = None  # validated before the run
     output: JsonSchema | None = None  # validated after the run
     returns: dict[OutputName, Path] = field(default_factory=dict)  # ``return:`` — builds the output
@@ -476,7 +477,8 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> Ski
 
     Raises:
         GraphError: not exactly one of ref:/graph:, a bad ref:, a non-path in
-            resources:, or a malformed inline graph.
+            resources:, a malformed inline graph, or an inline graph whose resources:
+            list does not match the names this node maps.
     """
     child_ref, inline = raw.get("ref"), raw.get("graph")
     if (child_ref is None) == (inline is None):
@@ -484,7 +486,7 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> Ski
     if child_ref is not None and not isinstance(child_ref, str):
         raise GraphError("ref: must be a skill ref or a path", node_id=node_id)
     graph = (
-        parse_graph(_require_mapping(inline, "graph:", node_id), f"{ref}#{node_id}")
+        parse_graph(_require_mapping(inline, "graph:", node_id), f"{ref}#{node_id}", inline=True)
         if inline is not None
         else None
     )
@@ -494,6 +496,11 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> Ski
         if not isinstance(value, str) or is_path(value):
             raise GraphError(f"resources.{name} must name a declared resource", node_id=node_id)
         resources[name] = value
+    if graph is not None and set(graph.resources) != set(resources):
+        raise GraphError(
+            f"inline graph: needs {sorted(graph.resources)}, this node maps {sorted(resources)}",
+            node_id=node_id,
+        )
     raw_each = raw.get("for_each")
     if raw_each is not None and not is_path(raw_each):
         raise GraphError("for_each: must be a $. path", node_id=node_id)
@@ -568,18 +575,45 @@ def _schema(value: Yaml, what: str) -> JsonSchema | None:
     return None if value is None else _require_json_mapping(value, what)
 
 
+def _parse_resources(raw: Yaml, ref: SkillRef, inline: bool) -> dict[ResourceName, TypeRef | None]:
+    """``resources:`` — a name-to-type-ref mapping, or bare names in an inline subgraph.
+
+    Raises:
+        GraphError: the block is written in the other one's form, or holds a non-string.
+    """
+    if not inline:
+        return {
+            name: str(type_ref) for name, type_ref in _require_mapping(raw, "resources:").items()
+        }
+    if not isinstance(raw, list):
+        raise GraphError(
+            f"{ref}: an inline graph: lists resources: by name only — the type ref is the "
+            "parent's, and its resources: mapping already says which instance each name gets"
+        )
+    for name in raw:
+        if not isinstance(name, str):
+            raise GraphError(f"{ref}: resources: must be a list of names")
+    return {str(name): None for name in raw}
+
+
 def parse_graph(
     raw: dict[str, Yaml],
     ref: SkillRef = "anonymous",
     source: FilePath | None = None,
+    inline: bool = False,
 ) -> Graph:
     """Build a Graph from an already-parsed YAML document, stamped with its ref.
 
     The document names nothing about itself: ``ref`` is where it was found, which the
     caller knows and the file does not.
 
+    ``inline`` marks a subgraph written under a ``skill.run`` node. It still says what it
+    needs, as a list of bare names — the type ref is the parent's to declare, since the
+    node's ``resources:`` mapping already settled which instance each name gets.
+
     Raises:
-        GraphError: any part of the document is malformed.
+        GraphError: any part of the document is malformed, or ``resources:`` is written
+            in the other one's form.
     """
     entry = raw.get("entry")
     if not isinstance(entry, str):
@@ -591,10 +625,7 @@ def parse_graph(
     if not isinstance(edges_list, list):
         raise GraphError("edges: must be a list")
 
-    resources: dict[ResourceName, TypeRef] = {
-        name: str(type_ref)
-        for name, type_ref in _require_mapping(raw.get("resources", {}), "resources:").items()
-    }
+    resources = _parse_resources(raw.get("resources", [] if inline else {}), ref, inline)
     returns: dict[OutputName, Path] = {}
     for name, value in _require_mapping(raw.get("return", {}), "return:").items():
         if not is_path(value):
@@ -953,6 +984,9 @@ def bind_resources(
 ) -> dict[ResourceName, Instance]:
     """Resolve every declared resource once, at run start.
 
+    An inline subgraph names what it needs but not the type: its node's ``resources:``
+    mapping picked the instance, and the parent already checked that one's type.
+
     Raises:
         RunError: a resource is unbound or bound to an instance of another type.
     """
@@ -961,7 +995,7 @@ def bind_resources(
         instance = resources.get(name)
         if instance is None:
             raise RunError(f"resource {name!r} is unbound")
-        if instance.type != type_ref:
+        if type_ref is not None and instance.type != type_ref:
             raise RunError(f"resource {name!r} wants {type_ref}, bound to {instance.type}")
         bound[name] = instance
     return bound

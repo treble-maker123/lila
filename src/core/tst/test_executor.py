@@ -513,6 +513,41 @@ def test_parse_graph__raises_graph_error_when_skill_run_has_both_ref_and_graph()
         )
 
 
+INLINE_PARENT = """
+resources: { inbox: test/fixture/mailbox }
+entry: gather
+nodes:
+  - id: gather
+    type: skill.run
+    resources: { box: inbox }
+    graph:
+      resources: [box]
+      entry: work
+      nodes:
+        - { id: work, type: tool, resource: box, call: get_message }
+      edges:
+        - { from: work, to: end }
+edges:
+  - { from: gather, to: end }
+"""
+
+
+def test_parse_graph__raises_graph_error_when_an_inline_subgraph_types_its_resources(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — the type ref is the parent's; the child lists bare names
+    with pytest.raises(GraphError, match="lists resources: by name only"):
+        graph_from(INLINE_PARENT.replace("resources: [box]", "resources: { box: test/f/mailbox }"))
+
+
+def test_parse_graph__raises_graph_error_when_an_inline_subgraph_needs_an_unmapped_resource(
+    graph_from: GraphFactory,
+) -> None:
+    # act / verify — the child says it needs ``box``, the node maps nothing
+    with pytest.raises(GraphError, match=r"needs \['box'\], this node maps \[\]"):
+        graph_from(INLINE_PARENT.replace("resources: { box: inbox }", "input: {}"))
+
+
 # endregion
 
 # region run
@@ -1066,7 +1101,7 @@ async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_reso
             resources: { box: inbox }
             input: {}
             graph:
-              resources: { box: test/fixture/mailbox }
+              resources: [box]
               entry: work
               nodes:
                 - { id: work, type: tool, resource: box, call: get_message, args: { id: "1" } }
@@ -1107,6 +1142,7 @@ async def test_skill_run__raises_run_error_when_a_mapped_resource_is_not_declare
             type: skill.run
             resources: { box: inbox }
             graph:
+              resources: [box]
               entry: work
               nodes:
                 - { id: work, type: tool, resource: box, call: get_message }

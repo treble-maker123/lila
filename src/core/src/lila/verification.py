@@ -66,7 +66,7 @@ class _Context:
             tool = self.registry.pure.get(node.config.call)
             return tool.result if tool is not None else None
         type_ref = self.graph.resources.get(node.config.resource)
-        if type_ref is None:
+        if type_ref is None:  # undeclared, or an inline subgraph's untyped name
             return None
         tool = self.registry.tools.get((type_ref, node.config.call))
         return tool.result if tool is not None else None
@@ -191,15 +191,17 @@ def _check_tools(context: _Context) -> None:
                     "unknown-tool", f"no pure tool {config.call!r}; installed: {known}", node.id
                 )
             continue
-        type_ref = graph.resources.get(config.resource)
-        if type_ref is None:
+        if config.resource not in graph.resources:
             context.report(
                 "undeclared-resource",
                 f"resource {config.resource!r} is not in resources:",
                 node.id,
             )
             continue
-        if context.registry is None:
+        type_ref = graph.resources[config.resource]
+        # An inline subgraph names a resource without typing it; only its parent's
+        # declaration says what tools it has.
+        if type_ref is None or context.registry is None:
             continue
         if context.registry.tools.get((type_ref, config.call)) is None:
             known = sorted(context.registry.tools_of(type_ref))

@@ -44,8 +44,7 @@ nodes:
         required: [subject, summary]
     graph:
       description: Fetches one message by id and summarizes it in a sentence.
-      resources:
-        inbox: test/email/imap
+      resources: [inbox]         # by name; the node above says which instance
       input:
         type: object
         properties:

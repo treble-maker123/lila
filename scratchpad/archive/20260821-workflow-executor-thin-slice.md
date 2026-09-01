@@ -1,9 +1,8 @@
 # Workflow Executor Thin-Slice
 
-**Status**: on-going — T1–T10 implemented and unit-tested. Remaining: proof against a real
-inbox and a real Discord post (the config holds a placeholder token). The scheduler is punted to
-the TODOs, as are P10 failure semantics and stubs/replay. P1–P7 unreviewed; P8/P9 agreed but
-unimplemented, so the code still uses the pre-P8 shape (`mailbox@1`, `uses:`/`call:`).
+**Status**: done as of 2026-09-01 — all items completed. The one thing not built is the
+integration between the notification skill and the digest workflow; that is punted to later.
+The scheduler is likewise punted, as are P10 failure semantics and stubs/replay.
 
 ## Goal
 

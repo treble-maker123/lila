@@ -19,12 +19,10 @@ from lila.values import Json
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# The tests own their skill: the real one is an extension living in an untracked
-# install, so a checkout must not need it to run the suite.
+# The tests own their skill: the real one lives in an untracked install, so a checkout
+# must not need it to run the suite.
 DIGEST_SKILL = """
-skill: email-digest
-version: 1
-resources: { inbox: test/fixture@1/mailbox }
+resources: { inbox: test/fixture/mailbox }
 input: { type: object, properties: {} }
 output:
   type: object
@@ -44,9 +42,7 @@ nodes:
     resources: { inbox: inbox }
     input: { message_id: $.each }
     graph:
-      skill: email-summary
-      version: 1
-      resources: { inbox: test/fixture@1/mailbox }
+      resources: { inbox: test/fixture/mailbox }
       input:
         type: object
         properties: { message_id: { type: string } }
@@ -93,11 +89,11 @@ CONFIG = """
 model = "scripted"
 
 [resources.fake-inbox]
-type = "test/fixture@1/mailbox"
+type = "test/fixture/mailbox"
 host = "mail.example.com"
 token = "app-password"
 
-[skills.email-digest.bindings]
+[skills."test/email-digest".bindings]
 inbox = "fake-inbox"
 """
 
@@ -125,11 +121,12 @@ class ScriptedModel(Model):
 
 @pytest.fixture
 def home(tmp_path: Path) -> Path:
-    """A real install: the fixture extension cloned in, plus the digest skill."""
+    """A real install: the fixture adapter cloned in, plus the digest skill beside it."""
     home = tmp_path / ".lila"
-    extension = home / "extensions" / "lila-fixture"
-    shutil.copytree(FIXTURES / "lila-fixture", extension)
-    (extension / "skills" / "digest.yaml").write_text(DIGEST_SKILL)
+    shutil.copytree(FIXTURES / "adapters", home / "adapters")
+    digest = home / "skills" / "test" / "email-digest"
+    digest.mkdir(parents=True)
+    (digest / "skill.yaml").write_text(DIGEST_SKILL)
     (home / "config.toml").write_text(CONFIG)
     return home
 
@@ -189,13 +186,13 @@ def test_parse_input__raises_when_a_json_value_does_not_parse() -> None:
 
 def test_check_command__succeeds_when_the_graph_checks_clean(home: Path) -> None:
     # act / verify
-    assert check_command(home / "extensions" / "lila-fixture" / "skills" / "digest.yaml") == 0
+    assert check_command(home / "skills" / "test" / "email-digest" / "skill.yaml") == 0
 
 
 def test_check_command__fails_when_the_graph_does_not_parse(tmp_path: Path) -> None:
     # prepare
     broken = tmp_path / "broken.yaml"
-    broken.write_text("skill: broken\nversion: 1\nentry: gone\nnodes: []\nedges: []\n")
+    broken.write_text("entry: gone\nnodes: []\nedges: []\n")
 
     # act / verify
     assert check_command(broken) == 1
@@ -212,7 +209,7 @@ def test_run_command__runs_an_installed_skill_by_ref(
     home: Path,
 ) -> None:
     # prepare / act — a ref, not a path
-    code = run_command("test/fixture@1/digest", [], [], home)
+    code = run_command("test/email-digest", [], [], home)
 
     # verify
     assert code == 0
@@ -228,7 +225,7 @@ def test_run_command__writes_the_record_when_given_a_path(
 ) -> None:
     # prepare
     record = tmp_path / "record.json"
-    skill = home / "extensions" / "lila-fixture" / "skills" / "digest.yaml"
+    skill = home / "skills" / "test" / "email-digest" / "skill.yaml"
 
     # act — a path this time, rather than an installed ref
     code = run_command(str(skill), [], [], home, record)
@@ -236,7 +233,8 @@ def test_run_command__writes_the_record_when_given_a_path(
     # verify
     assert code == 0
     written: dict[str, Json] = json.loads(record.read_text())
-    assert written["skill"] == "email-digest"
+    # A path that is an installed skill is still recorded under its ref.
+    assert written["skill"] == "test/email-digest"
     nodes = written["nodes"]
     assert isinstance(nodes, list)
     entries = [entry for entry in nodes if isinstance(entry, dict)]
@@ -256,7 +254,7 @@ def test_run_command__records_the_resource_name_not_the_instance(
     record = tmp_path / "record.json"
 
     # act
-    run_command("test/fixture@1/digest", [], [], home, record)
+    run_command("test/email-digest", [], [], home, record)
 
     # verify — the name reaches the record; the instance and its credentials do not
     written: dict[str, Json] = json.loads(record.read_text())
@@ -276,7 +274,7 @@ def test_run_command__fails_when_a_resource_is_unbound(model: ScriptedModel, hom
     (home / "config.toml").write_text(CONFIG.split("[skills.")[0])
 
     # act / verify
-    assert run_command("test/fixture@1/digest", [], [], home) == 1
+    assert run_command("test/email-digest", [], [], home) == 1
 
 
 # endregion

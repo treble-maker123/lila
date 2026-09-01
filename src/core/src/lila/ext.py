@@ -1,8 +1,8 @@
-"""The extension surface: everything an extension is allowed to import from core.
+"""The authoring surface: everything an adapter is allowed to import from core.
 
-An extension author writes a ``@resource`` dataclass and ``@tool`` functions over it;
+An adapter author writes a ``@resource`` dataclass and ``@tool`` functions over it;
 arg and result schemas are derived from the signatures, so nothing is declared twice.
-The decorators only tag — ``lila.extensions`` reads the tags and builds the registry,
+The decorators only tag — ``lila.adapters`` reads the tags and builds the registry,
 which is what keeps this module free of any dependency on the rest of core.
 """
 
@@ -20,7 +20,7 @@ from lila.values import Json, JsonSchema
 
 # region names
 
-type TypeRef = str  # ``publisher/extension@version/member``, e.g. ``test/email@1/imap``
+type TypeRef = str  # ``<namespace>/<adapter>/<type>``, e.g. ``test/email/imap``
 type ToolName = str  # a tool's own name inside its resource type, e.g. ``get_message``
 type FieldName = str  # a field of a resource's config, e.g. ``host``
 type ArgName = str  # a parameter of a tool
@@ -36,11 +36,11 @@ TOOL_MARK = "__lila_tool__"
 
 
 class ExtError(TypeError):
-    """An extension declares something the harness cannot derive a schema from."""
+    """An adapter declares something the harness cannot derive a schema from."""
 
 
 class ToolError(RuntimeError):
-    """A tool failed. The one error an extension raises for a failed call."""
+    """A tool failed. The one error an adapter raises for a failed call."""
 
 
 def resource[T: type](cls: T) -> T:

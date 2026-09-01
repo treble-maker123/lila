@@ -9,7 +9,9 @@ __marimo__/
 # local data files
 data/
 
-# The local install: config (credentials) and the skills installed into it. Untracked on
-# purpose — a skill is an extension that arrives from outside the repo, and the harness's
-# own bundled skills will ship in the package instead.
-.lila/
+# The local install. The two trees are tracked so the repo carries a working example of
+# the layout; everything else in here is local — config.toml holds credentials, and
+# records/ is run output.
+.lila/*
+!.lila/adapters/
+!.lila/skills/

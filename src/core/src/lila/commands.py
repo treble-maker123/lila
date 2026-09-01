@@ -10,27 +10,32 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path as FilePath
 
+from lila.adapters import load as load_adapters
 from lila.config import (
+    ADAPTERS_DIR,
+    SKILLS_DIR,
     ConfigError,
     InstallConfig,
+    adapters_path,
     build_instances,
     build_models,
     bundled_path,
     config_path,
-    extensions_path,
     find_home,
     load_config,
     skill_bindings,
+    skills_path,
 )
 from lila.executor import Graph, GraphError, RunContext, RunError, load_graph, run
 from lila.ext import ExtError, ToolError, ToolName
-from lila.extensions import ExtensionError, resolve_skill
-from lila.extensions import load as load_extensions
+from lila.install import InstallError
 from lila.model import ModelError, OllamaModel
-from lila.resources import ArgName, InstanceName, Registry, ResourceError
+from lila.resources import ArgName, InstanceName, Registry, ResourceError, SkillRef
+from lila.skills import discover as discover_skills
+from lila.skills import resolve_skill
 from lila.tools import default_handlers
 from lila.values import Json
 from lila.verification import check
@@ -66,18 +71,29 @@ def parse_input(pairs: list[str], json_pairs: list[str]) -> dict[ArgName, Json]:
 
 
 def build_registry(home: FilePath, config: InstallConfig) -> Registry:
-    """Everything installed here: extensions loaded, then their instances built.
+    """Everything installed here: adapters loaded, skills indexed, instances built.
+
+    Each tree is searched in the install first, then among what ships with the harness.
 
     Raises:
         ConfigError: a configured resource names a type nothing defines.
-        ExtensionError, ExtError: an extension is malformed.
+        InstallError, ExtError: an adapter or a skill directory is malformed.
     """
-    registry = load_extensions(extensions_path(home), bundled_path())
+    registry = load_adapters(adapters_path(home), bundled_path(ADAPTERS_DIR))
+    registry.skills.update(discover_skills(skills_path(home), bundled_path(SKILLS_DIR)))
     return build_instances(config, registry)
 
 
+@dataclass(frozen=True, slots=True)
+class Target:
+    """What a command was pointed at: the graph file, and the ref it is known by."""
+
+    path: FilePath
+    ref: SkillRef
+
+
 def load_checked(
-    path: FilePath,
+    target: Target,
     config: InstallConfig | None = None,
     registry: Registry | None = None,
 ) -> Graph | None:
@@ -86,42 +102,48 @@ def load_checked(
     Returns None when the file does not parse or the check found issues.
     """
     try:
-        graph = load_graph(path)
+        graph = load_graph(target.path, target.ref)
     except GraphError as exc:
-        print(f"{path}: {exc}", file=sys.stderr)
+        print(f"{target.path}: {exc}", file=sys.stderr)
         return None
-    skill = config.skills.get(graph.skill) if config is not None else None
+    skill = config.skills.get(graph.ref) if config is not None else None
     issues = check(graph, skill.bindings if skill is not None else None, registry)
     for issue in issues:
         print(str(issue), file=sys.stderr)
     return None if issues else graph
 
 
-def graph_path(target: str, home: FilePath, registry: Registry | None = None) -> FilePath:
+def resolve_target(target: str, registry: Registry | None = None) -> Target:
     """A graph file: a path when one exists, otherwise a skill ref installed here.
 
-    Lets ``lila run test/email@1/digest`` mean the same thing as its full path.
+    Lets ``lila run test/email-digest`` mean the same thing as its full path: a file
+    that is an installed skill keeps that skill's ref, so both spellings bind alike. A
+    graph nothing installed points at is identified by its path.
 
     Raises:
         ConfigError: the ref is not installed, and no such file exists.
     """
+    known = (registry or Registry()).skills
     as_file = FilePath(target)
     if as_file.exists():
-        return as_file
-    installed = (registry or Registry()).skills.get(target)
+        resolved = as_file.resolve()
+        ref = next((ref for ref, path in known.items() if path.resolve() == resolved), target)
+        return Target(path=as_file, ref=ref)
+    installed = known.get(target)
     if installed is None:
-        known = sorted((registry or Registry()).skills)
-        raise ConfigError(f"{target!r} is neither a file nor an installed skill; here: {known}")
-    return installed
+        raise ConfigError(
+            f"{target!r} is neither a file nor an installed skill; here: {sorted(known)}"
+        )
+    return Target(path=installed, ref=target)
 
 
 def check_command(path: FilePath) -> int:
     """``lila check`` — load and statically check one graph file."""
-    graph = load_checked(path)
+    graph = load_checked(Target(path=path, ref=str(path)))
     if graph is None:
         return FAILED
     summary = f" — {graph.description}" if graph.description else ""
-    print(f"{graph.skill}@{graph.version}: ok{summary}")
+    print(f"{graph.ref}: ok{summary}")
     return OK
 
 
@@ -138,12 +160,12 @@ async def execute(
         ConfigError, ResourceError, RunError, ModelError: as raised by the run.
     """
     models = build_models(config)
-    resources = skill_bindings(config, graph.skill, registry)
+    resources = skill_bindings(config, graph.ref, registry)
     context = RunContext(
         handlers=default_handlers(),
         models=models,
         registry=registry,
-        # A ``ref:`` resolves against the extensions installed here, never a path.
+        # A ``ref:`` resolves against the skills installed here, never a path.
         skills=resolve_skill(registry),
     )
     try:
@@ -156,7 +178,7 @@ async def execute(
     print(json.dumps(result.output, indent=2))
     record = result.record
     steps = " -> ".join(entry.node_id for entry in record.nodes)
-    print(f"{record.skill}@{record.version}: {steps}", file=sys.stderr)
+    print(f"{record.skill}: {steps}", file=sys.stderr)
     if record_path is not None:
         record_path.write_text(json.dumps(asdict(record), indent=2, default=str))
 
@@ -176,21 +198,21 @@ def run_command(
         home = home_path.resolve() if home_path is not None else find_home()
         config = load_config(config_path(home))
         registry = build_registry(home, config)
-        path = graph_path(target, home, registry)
-    except (ConfigError, ExtensionError, ExtError) as exc:
+        found = resolve_target(target, registry)
+    except (ConfigError, InstallError, ExtError) as exc:
         print(str(exc), file=sys.stderr)
         return FAILED
     # Which install answered matters when more than one exists.
     print(f"home: {home}", file=sys.stderr)
 
-    graph = load_checked(path, config, registry)
+    graph = load_checked(found, config, registry)
     if graph is None:
         return FAILED
     try:
         run_input = parse_input(pairs, json_pairs)
         asyncio.run(execute(graph, run_input, config, registry, record_path))
     except (ValueError, ConfigError, ResourceError, RunError, ModelError) as exc:
-        print(f"{path}: {exc}", file=sys.stderr)
+        print(f"{found.path}: {exc}", file=sys.stderr)
         return FAILED
     return OK
 
@@ -213,7 +235,7 @@ def call_command(
         found = registry.instance(instance)
         tool = registry.tool(found.type, call)
         output = tool.run(found.handle, **parse_input(pairs, []))
-    except (ValueError, TypeError, ConfigError, ResourceError, ExtensionError, ToolError) as exc:
+    except (ValueError, TypeError, ConfigError, ResourceError, InstallError, ToolError) as exc:
         print(f"{instance}.{call}: {exc}", file=sys.stderr)
         return FAILED
     print(json.dumps(output, indent=2))

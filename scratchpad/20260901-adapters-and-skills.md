@@ -4,8 +4,8 @@
 resource + tool binding, structural check as a lint). Skills become install-instantiated,
 and `extensions/` splits into two manifest-free trees, `adapters/` and `skills/`, with the
 path as identity and versioning left to git. Open: how a `ref:` subgraph's binding reaches it.
-Four tasks at the bottom, scoped to a thin slice, with what they defer under "Later". Nothing
-implemented.
+Four tasks at the bottom, scoped to a thin slice, with what they defer under "Later".
+**Task 1 is done**; 2–4 are not started.
 
 ## Goal
 
@@ -489,7 +489,48 @@ Keep both docs; cross-link.
 In order. Nothing below is started. Old tasks 1 and 3 merged into task 1 — the local skills
 directory is the same tree.
 
-### 1. Two trees, no manifest
+### 1. Two trees, no manifest — done
+
+Landed as designed. Three notes on what the implementation settled:
+
+- `extensions.py` split into `adapters.py` (loading) and `skills.py` (the index, the
+  resolver, `asset_path`), over a shared `install.py` holding the two-level scan, segment
+  validation, and `InstallError` — which `AdapterError` and `SkillError` both subclass, so
+  the CLI catches one thing.
+- `Graph.skill`/`.version` became one `Graph.ref`, stamped by `load_graph(path, ref)`.
+- Running a skill by **path** resolves back to its ref when that file is an installed
+  skill, so both spellings bind alike. A file nothing installed points at keeps the path
+  as its identity, which is what `lila check` and the record then show.
+
+What moved, before and after:
+
+```
+                                        BEFORE                                   AFTER
+install       .lila/extensions/test-email/lila.toml            (deleted — the path is the identity)
+              .lila/extensions/test-email/code/imap.py         .lila/adapters/test/email/code/imap.py
+              .lila/extensions/test-email/skills/digest.yaml   .lila/skills/test/email-digest/skill.yaml
+              .lila/extensions/test-discord/code/discord.py    .lila/adapters/test/discord/code/discord.py
+              .lila/extensions/test-discord/skills/notify.yaml .lila/skills/test/discord-notify/skill.yaml
+
+fixtures      tst/fixtures/lila-fixture/lila.toml              (deleted)
+              tst/fixtures/lila-fixture/code/mailbox.py        tst/fixtures/adapters/test/fixture/code/mailbox.py
+              tst/fixtures/lila-fixture/skills/fetch.yaml      tst/fixtures/skills/test/fetching/skill.yaml
+
+core          lila/extensions.py                               lila/adapters.py + lila/skills.py + lila/install.py
+              tst/test_extensions.py                           tst/test_adapters.py + tst/test_skills.py
+```
+
+And the refs and keys that respell with it:
+
+| | Before | After |
+|---|---|---|
+| type ref | `test/email@1/imap` | `test/email/imap` |
+| skill ref | `test/email@1/digest` | `test/email-digest` |
+| binding key | `[skills.email-digest]` (the `skill:` field) | `[skills."test/email-digest"]` (the ref) |
+| inline subgraph | `email-summary` (its own `skill:`) | `test/email-digest#summaries` |
+
+`.lila/adapters/` and `.lila/skills/` are now tracked (`.gitignore`), so the repo carries a
+working example of the layout; `config.toml` and `records/` stay local.
 
 `extensions/` splits into `adapters/` and `skills/`, both `<root>/<namespace>/<name>/`, and
 `lila.toml` goes. The path becomes the identity in both. This is the load-bearing task:
@@ -553,15 +594,8 @@ its own directory and must not escape the namespace root. Nothing reads external
 this can land as the resolver plus a check, with the first consumer (a `prompt_file:` on an llm
 node?) deferred.
 
-**Refactor, not migrate.** No installed base, so nothing is kept for compatibility:
-
-| From | To |
-|---|---|
-| `.lila/extensions/test-email/code/` | `.lila/adapters/test/email/code/` |
-| `.lila/extensions/test-email/skills/digest.yaml` | `.lila/skills/test/email-digest/skill.yaml` |
-| `.lila/extensions/test-discord/` | same split |
-| `tst/fixtures/lila-fixture/` | the two-tree layout |
-| every `lila.toml` | deleted |
+**Refactor, not migrate.** No installed base, so nothing is kept for compatibility. What
+moved is recorded above, under "done".
 
 Drop `skill:` and `version:` from all three documents, including `digest.yaml`'s inline child,
 and `@1` from every ref in them. Tests asserting `test/fixture@1/fetch` or loading a manifest

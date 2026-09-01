@@ -13,10 +13,10 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path as FilePath
 
-from lila.executor import ModelAlias, SkillName
+from lila.executor import ModelAlias
 from lila.ext import ConfigField, TypeRef, config_fields
 from lila.model import DEFAULT_OLLAMA_HOST, Model, OllamaModel
-from lila.resources import Instance, InstanceName, Registry, ResourceName
+from lila.resources import Instance, InstanceName, Registry, ResourceName, SkillRef
 
 # region names
 
@@ -24,10 +24,11 @@ type EnvVarName = str  # the environment variable a secret is read from
 type SettingName = str  # key in a resource's own settings
 type Setting = str | int | bool  # what a setting may hold; secrets are not among them
 
-HOME_NAME = ".lila"  # the install directory: config and installed extensions
+HOME_NAME = ".lila"  # the install directory: config, and the two trees installed into it
 HOME_VAR = "LILA_HOME"  # overrides discovery, for tests and containers
 CONFIG_NAME = "config.toml"
-EXTENSIONS_DIR = "extensions"
+ADAPTERS_DIR = "adapters"
+SKILLS_DIR = "skills"
 
 # endregion
 
@@ -54,7 +55,7 @@ class ResourceConfig:
     """One configured resource instance: a type ref plus that type's own settings."""
 
     name: InstanceName
-    type: TypeRef  # e.g. ``test/email@1/imap``; the extension defines its fields
+    type: TypeRef  # e.g. ``test/email/imap``; the adapter defines its fields
     settings: dict[SettingName, Setting] = field(default_factory=dict)
     # Setting name -> env var holding its value, merged over ``settings`` at build time.
     secrets: dict[SettingName, EnvVarName] = field(default_factory=dict)
@@ -64,7 +65,7 @@ class ResourceConfig:
 class SkillConfig:
     """Which instance fills each resource name a skill declares."""
 
-    name: SkillName
+    name: SkillRef
     bindings: dict[ResourceName, InstanceName] = field(default_factory=dict)
 
 
@@ -74,7 +75,7 @@ class InstallConfig:
 
     models: dict[ModelAlias, ModelConfig] = field(default_factory=dict)
     resources: dict[InstanceName, ResourceConfig] = field(default_factory=dict)
-    skills: dict[SkillName, SkillConfig] = field(default_factory=dict)
+    skills: dict[SkillRef, SkillConfig] = field(default_factory=dict)
 
 
 # region loading
@@ -167,7 +168,7 @@ def parse_config(raw: dict[str, object]) -> InstallConfig:
             secrets=_secrets(table, f"resources.{name}"),
         )
 
-    skills: dict[SkillName, SkillConfig] = {}
+    skills: dict[SkillRef, SkillConfig] = {}
     for name, value in _table(raw.get("skills", {}), "skills").items():
         table = _table(value, f"skills.{name}")
         declared = _table(table.get("bindings", {}), f"skills.{name}.bindings")
@@ -208,14 +209,19 @@ def config_path(home: FilePath) -> FilePath:
     return home / CONFIG_NAME
 
 
-def extensions_path(home: FilePath) -> FilePath:
-    """Where an install keeps the extensions cloned into it."""
-    return home / EXTENSIONS_DIR
+def adapters_path(home: FilePath) -> FilePath:
+    """Where an install keeps the adapters cloned into it."""
+    return home / ADAPTERS_DIR
 
 
-def bundled_path() -> FilePath:
-    """Where the extensions that ship with the harness live, searched after the install."""
-    return FilePath(__file__).resolve().parents[3] / EXTENSIONS_DIR
+def skills_path(home: FilePath) -> FilePath:
+    """Where an install keeps its skills — published, cloned, or written by hand."""
+    return home / SKILLS_DIR
+
+
+def bundled_path(tree: str) -> FilePath:
+    """Where one of the trees that ships with the harness lives, searched after the install."""
+    return FilePath(__file__).resolve().parents[3] / tree
 
 
 def load_config(path: FilePath | str | None = None) -> InstallConfig:
@@ -272,9 +278,9 @@ def _resolved(config: ResourceConfig) -> dict[SettingName, Setting]:
 
 
 def build_resource(config: ResourceConfig, registry: Registry) -> Instance:
-    """Instantiate one configured resource from its extension's own dataclass.
+    """Instantiate one configured resource from its adapter's own dataclass.
 
-    The extension declares the fields; this only reads them and checks the settings fit.
+    The adapter declares the fields; this only reads them and checks the settings fit.
 
     Raises:
         ConfigError: the type is not installed, a secret is unset, or a setting is
@@ -282,9 +288,7 @@ def build_resource(config: ResourceConfig, registry: Registry) -> Instance:
     """
     resource_type = registry.types.get(config.type)
     if resource_type is None:
-        raise ConfigError(
-            f"resources.{config.name}: no installed extension defines {config.type!r}"
-        )
+        raise ConfigError(f"resources.{config.name}: no installed adapter defines {config.type!r}")
     settings = _resolved(config)
     fields = {declared.name: declared for declared in config_fields(resource_type)}
     unknown = sorted(set(settings) - set(fields))
@@ -336,7 +340,7 @@ def build_instances(config: InstallConfig, registry: Registry) -> Registry:
 
 def skill_bindings(
     config: InstallConfig,
-    skill: SkillName,
+    skill: SkillRef,
     registry: Registry,
 ) -> dict[ResourceName, Instance]:
     """Resolve one skill's declared resource names to instances.
@@ -347,7 +351,7 @@ def skill_bindings(
     """
     skill_config = config.skills.get(skill)
     if skill_config is None:
-        raise ConfigError(f"no [skills.{skill}] section; nothing to bind its resources to")
+        raise ConfigError(f'no [skills."{skill}"] section; nothing to bind its resources to')
     return {name: registry.instance(binding) for name, binding in skill_config.bindings.items()}
 
 
@@ -362,11 +366,12 @@ __all__ = [
     "build_instances",
     "build_models",
     "build_resource",
+    "adapters_path",
     "bundled_path",
     "config_path",
-    "extensions_path",
     "find_home",
     "load_config",
     "parse_config",
     "skill_bindings",
+    "skills_path",
 ]

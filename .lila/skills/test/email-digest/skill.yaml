@@ -1,0 +1,109 @@
+description: >-
+  Reads the 10 most recent unread messages in a mailbox, summarizes each one in a
+  sentence, and writes a single digest saying what needs attention and what can wait.
+  Read-only — it never moves, flags, or marks anything.
+
+resources:                     # what this skill needs, bound to an instance at install
+  inbox: test/email/imap
+
+input:
+  type: object
+  properties: {}
+
+output:
+  type: object
+  properties:
+    digest: { type: string }
+  required: [digest]
+
+entry: list
+
+nodes:
+  - id: list
+    type: tool
+    resource: inbox
+    call: list_messages
+    args:
+      unread: true
+      limit: 10                # the 10 most recent — a digest, not the whole backlog
+
+  - id: summaries              # map: one child run per id, output is the list
+    type: skill.run
+    for_each: $.list.ids
+    resources:
+      inbox: inbox             # the child gets the instance, never a credential
+    input:
+      message_id: $.each
+    out:
+      type: array
+      items:
+        type: object
+        properties:
+          subject: { type: string }
+          summary: { type: string }
+        required: [subject, summary]
+    graph:
+      description: Fetches one message by id and summarizes it in a sentence.
+      resources:
+        inbox: test/email/imap
+      input:
+        type: object
+        properties:
+          message_id: { type: string }
+        required: [message_id]
+      output:
+        type: object
+        properties:
+          subject: { type: string }
+          summary: { type: string }
+        required: [subject, summary]
+      entry: fetch
+      nodes:
+        - id: fetch
+          type: tool
+          resource: inbox
+          call: get_message
+          args:
+            id: $.input.message_id
+
+        - id: summarize
+          type: llm
+          prompt: |
+            Summarize this e-mail in one sentence.
+
+            From: {{ $.fetch.sender }}
+            Subject: {{ $.fetch.subject }}
+
+            {{ $.fetch.body }}
+          out:
+            type: object
+            properties:
+              summary: { type: string }
+            required: [summary]
+      edges:
+        - { from: fetch,     to: summarize }
+        - { from: summarize, to: end }
+      return:
+        subject: $.fetch.subject
+        summary: $.summarize.summary
+
+  - id: digest                 # reduce: the summaries, combined into one note
+    type: llm
+    prompt: |
+      These are today's unread e-mails, one line each.
+      Write a short digest: what needs attention, what can wait.
+
+      {{ $.summaries }}
+    out:
+      type: object
+      properties:
+        digest: { type: string }
+      required: [digest]
+
+edges:
+  - { from: list,      to: summaries }
+  - { from: summaries, to: digest }
+  - { from: digest,    to: end }
+
+return:
+  digest: $.digest.digest

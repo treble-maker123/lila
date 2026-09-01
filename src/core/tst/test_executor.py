@@ -37,7 +37,7 @@ from lila.executor import (
     skill_run_handler,
 )
 from lila.model import GenerateEvent, GenerateOptions, Message, Model, TextChunk, Usage
-from lila.resources import Instance
+from lila.resources import Instance, SkillRef
 from lila.values import Json
 
 # region fixtures
@@ -68,11 +68,11 @@ class ScriptedModel(Model):
         yield Usage(prompt_tokens=1, completion_tokens=2, done_reason="stop")
 
 
-MAILBOX = "test/fixture@1/mailbox"
+MAILBOX = "test/fixture/mailbox"
 
 
 class FakeHandle:
-    """Stands in for an extension's own resource object; the loop never looks inside."""
+    """Stands in for an adapter's own resource object; the loop never looks inside."""
 
 
 def instance(name: str = "fake-inbox", type_ref: str = MAILBOX) -> Instance:
@@ -91,17 +91,15 @@ def echo_handler(value: Json) -> Handler:
 
 @pytest.fixture
 def graph_from() -> GraphFactory:
-    """Build a Graph from YAML source text."""
+    """Build a Graph from YAML source text, stamped with the ref it is known by."""
 
-    def build(source: str) -> Graph:
-        return parse_graph(yaml.safe_load(source))
+    def build(source: str, ref: SkillRef = "anonymous") -> Graph:
+        return parse_graph(yaml.safe_load(source), ref)
 
     return build
 
 
 LINEAR_GRAPH = """
-skill: linear
-version: 1
 entry: first
 input:
   type: object
@@ -379,8 +377,8 @@ def test_load_graph__builds_typed_nodes_when_file_declares_them(tmp_path: FilePa
     # act
     graph = load_graph(path)
 
-    # verify
-    assert graph.skill == "linear"
+    # verify — nothing in the file says what it is called; the path it was read from does
+    assert graph.ref == str(path)
     assert graph.entry == "first"
     assert isinstance(graph.nodes[0].config, ToolConfig)
     assert graph.returns["value"].text == "$.first.value"
@@ -399,10 +397,9 @@ def test_parse_graph__compiles_args_paths_when_node_is_a_tool(graph_from: GraphF
 def test_parse_graph__normalizes_graph_run_to_skill_run(graph_from: GraphFactory) -> None:
     # prepare / act
     graph = graph_from("""
-        skill: nesting
         entry: child
         nodes:
-          - { id: child, type: graph.run, ref: other@1 }
+          - { id: child, type: graph.run, ref: other/thing }
         edges:
           - { from: child, to: end }
         """)
@@ -415,7 +412,6 @@ def test_parse_graph__normalizes_graph_run_to_skill_run(graph_from: GraphFactory
 def test_parse_graph__keeps_comments_when_the_author_left_them(graph_from: GraphFactory) -> None:
     # prepare / act
     graph = graph_from("""
-        skill: annotated
         comment: the whole flow
         entry: first
         nodes:
@@ -435,7 +431,6 @@ def test_parse_graph__reads_the_description_when_the_skill_declares_one(
 ) -> None:
     # prepare / act
     graph = graph_from("""
-        skill: described
         description: >-
           Summarizes a mailbox
           in one line.
@@ -480,7 +475,6 @@ def test_parse_graph__raises_graph_error_when_args_hold_a_non_json_yaml_type(
     # act / verify — an unquoted date is a datetime.date, which no run can record
     with pytest.raises(GraphError, match="must be JSON — got date"):
         graph_from("""
-            skill: dated
             entry: first
             nodes:
               - { id: first, type: tool, resource: store, call: echo, args: { since: 2026-01-01 } }
@@ -495,7 +489,6 @@ def test_parse_graph__raises_graph_error_when_a_tool_node_declares_out(
     # act / verify — the tool declares its result schema; the graph cannot disagree
     with pytest.raises(GraphError, match="its tool does"):
         graph_from("""
-            skill: doubled
             entry: first
             nodes:
               - id: first
@@ -514,7 +507,7 @@ def test_parse_graph__raises_graph_error_when_skill_run_has_both_ref_and_graph()
         parse_graph(
             {
                 "entry": "a",
-                "nodes": [{"id": "a", "type": "skill.run", "ref": "x@1", "graph": {}}],
+                "nodes": [{"id": "a", "type": "skill.run", "ref": "x/y", "graph": {}}],
                 "edges": [],
             }
         )
@@ -546,7 +539,6 @@ async def test_run__takes_the_first_matching_edge_when_several_are_guarded(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: routing
         entry: classify
         nodes:
           - id: classify
@@ -576,7 +568,6 @@ async def test_run__falls_through_to_the_unguarded_edge_when_no_guard_matches(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: routing
         entry: classify
         nodes:
           - id: classify
@@ -606,7 +597,6 @@ async def test_run__raises_run_error_naming_the_node_when_output_breaks_its_sche
 ) -> None:
     # prepare — only llm nodes declare out:; a tool node's schema comes from its tool
     graph = graph_from("""
-        skill: checked
         entry: first
         nodes:
           - id: first
@@ -644,7 +634,6 @@ async def test_run__raises_run_error_when_a_node_loops_past_max_steps(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: looping
         entry: spin
         nodes:
           - { id: spin, type: tool, resource: store, call: fixed }
@@ -663,7 +652,6 @@ async def test_run__records_every_edge_with_its_evaluated_inputs(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: routing
         entry: classify
         nodes:
           - { id: classify, type: tool, resource: store, call: fixed }
@@ -684,8 +672,7 @@ async def test_run__records_every_edge_with_its_evaluated_inputs(
 
 
 RESOURCE_GRAPH = """
-skill: resourced
-resources: { inbox: test/fixture@1/mailbox }
+resources: { inbox: test/fixture/mailbox }
 entry: fetch
 nodes:
   - { id: fetch, type: tool, resource: inbox, call: get_message, args: { id: "1" } }
@@ -735,8 +722,8 @@ async def test_run__raises_run_error_when_an_instance_is_of_another_type(
     context = RunContext(handlers={"tool": echo_handler({})})
 
     # act / verify
-    with pytest.raises(RunError, match="test/fixture@1/calendar"):
-        await run(graph, {}, context, {"inbox": instance(type_ref="test/fixture@1/calendar")})
+    with pytest.raises(RunError, match="test/fixture/calendar"):
+        await run(graph, {}, context, {"inbox": instance(type_ref="test/fixture/calendar")})
 
 
 async def test_run__records_the_stub_set_shape_when_a_node_runs_twice(
@@ -744,7 +731,6 @@ async def test_run__records_the_stub_set_shape_when_a_node_runs_twice(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: twice
         entry: a
         nodes:
           - { id: a, type: tool, resource: store, call: fixed }
@@ -772,7 +758,6 @@ async def test_llm_handler__constrains_decoding_to_the_out_schema(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: classifying
         entry: classify
         input: { type: object, properties: { subject: { type: string } } }
         nodes:
@@ -801,7 +786,6 @@ async def test_llm_handler__constrains_decoding_to_the_out_schema(
 
 
 THINKING_GRAPH = """
-skill: thinking
 entry: answer
 input: { type: object, properties: { deep: { type: boolean } } }
 nodes:
@@ -892,7 +876,6 @@ async def test_llm_handler__records_usage_and_model_when_the_call_succeeds(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: classifying
         entry: classify
         nodes:
           - id: classify
@@ -918,7 +901,6 @@ async def test_llm_handler__raises_run_error_when_the_model_returns_non_json(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: classifying
         entry: classify
         nodes:
           - id: classify
@@ -942,7 +924,6 @@ async def test_llm_handler__raises_run_error_when_the_alias_is_unbound(
 ) -> None:
     # prepare
     graph = graph_from("""
-        skill: classifying
         entry: classify
         nodes:
           - { id: classify, type: llm, model: big, prompt: "hi" }
@@ -961,7 +942,6 @@ async def test_llm_handler__raises_run_error_when_the_alias_is_unbound(
 # region skill_run_handler
 
 CHILD_GRAPH = """
-skill: child
 entry: work
 input:
   type: object
@@ -985,7 +965,6 @@ async def test_skill_run__lands_the_child_output_at_the_node_id(
     # prepare
     (tmp_path / "child.yaml").write_text(CHILD_GRAPH)
     parent = graph_from("""
-        skill: parent
         entry: gather
         nodes:
           - id: gather
@@ -1013,14 +992,12 @@ async def test_skill_run__hangs_the_child_record_off_the_parent_entry(
 ) -> None:
     # prepare
     parent = graph_from("""
-        skill: parent
         entry: gather
         nodes:
           - id: gather
             type: skill.run
             input: {}
             graph:
-              skill: inline
               entry: work
               nodes:
                 - { id: work, type: tool, resource: store, call: fixed }
@@ -1047,7 +1024,6 @@ async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
 ) -> None:
     # prepare — the child asks for a parent node it was not handed
     parent = graph_from("""
-        skill: parent
         entry: seed
         nodes:
           - { id: seed, type: tool, resource: store, call: fixed }
@@ -1055,7 +1031,6 @@ async def test_skill_run__keeps_the_child_from_reading_the_parent_memory(
             type: skill.run
             input: {}
             graph:
-              skill: inline
               entry: work
               nodes:
                 - { id: work, type: tool, resource: store, call: peek, args: { seen: $.seed.note } }
@@ -1083,8 +1058,7 @@ async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_reso
 ) -> None:
     # prepare — the child names it ``box``, the parent ``inbox``; no path is involved
     parent = graph_from("""
-        skill: parent
-        resources: { inbox: test/fixture@1/mailbox }
+        resources: { inbox: test/fixture/mailbox }
         entry: gather
         nodes:
           - id: gather
@@ -1092,8 +1066,7 @@ async def test_skill_run__passes_a_resource_down_by_name_when_the_node_maps_reso
             resources: { box: inbox }
             input: {}
             graph:
-              skill: inline
-              resources: { box: test/fixture@1/mailbox }
+              resources: { box: test/fixture/mailbox }
               entry: work
               nodes:
                 - { id: work, type: tool, resource: box, call: get_message, args: { id: "1" } }
@@ -1128,14 +1101,12 @@ async def test_skill_run__raises_run_error_when_a_mapped_resource_is_not_declare
 ) -> None:
     # prepare
     parent = graph_from("""
-        skill: parent
         entry: gather
         nodes:
           - id: gather
             type: skill.run
             resources: { box: inbox }
             graph:
-              skill: inline
               entry: work
               nodes:
                 - { id: work, type: tool, resource: box, call: get_message }
@@ -1152,7 +1123,6 @@ async def test_skill_run__raises_run_error_when_a_mapped_resource_is_not_declare
 
 
 MAP_PARENT = """
-skill: parent
 entry: fan
 nodes:
   - id: fan
@@ -1160,7 +1130,6 @@ nodes:
     for_each: $.input.subjects
     input: { subject: $.each }
     graph:
-      skill: child
       entry: work
       input:
         type: object
@@ -1208,16 +1177,16 @@ async def test_skill_run__keeps_one_child_record_per_item_when_mapping(
     graph_from: GraphFactory,
 ) -> None:
     # prepare
-    parent = graph_from(MAP_PARENT)
+    parent = graph_from(MAP_PARENT, "test/parent")
     context = RunContext(handlers={"skill.run": skill_run_handler, "tool": echo_args})
 
     # act
     result = await run(parent, {"subjects": ["one", "two"]}, context)
 
-    # verify
+    # verify — an inline child has no file, so it is named under the node that holds it
     entry = result.record.nodes[0]
     assert entry.child is None
-    assert [record.skill for record in entry.children] == ["child", "child"]
+    assert [record.skill for record in entry.children] == ["test/parent#fan"] * 2
 
 
 async def test_skill_run__runs_nothing_when_the_mapped_list_is_empty(

@@ -19,7 +19,7 @@ from lila.ext import Tool, ToolName, TypeRef
 type ResourceName = str  # what a graph calls a resource it needs, e.g. ``inbox``
 type InstanceName = str  # a configured instance, e.g. ``gmail-personal``
 type ArgName = str  # key in a call's args mapping
-type SkillRef = str  # ``publisher/extension@version/member``, or a path
+type SkillRef = str  # ``<namespace>/<name>``, or a path
 
 # endregion
 
@@ -34,20 +34,20 @@ class Instance:
 
     name: InstanceName
     type: TypeRef  # the resource type it was built from
-    handle: object  # the extension's own dataclass instance, passed to its tools
+    handle: object  # the adapter's own dataclass instance, passed to its tools
 
 
 @dataclass(slots=True)
 class Registry:
     """What an install knows: resource types, their tools, instances, and skills.
 
-    Populated by lila.extensions from installed extensions, then read by the run loop,
-    the static check, and the CLI.
+    Populated by lila.adapters and lila.skills from what is installed, then read by the
+    run loop, the static check, and the CLI.
     """
 
     types: dict[TypeRef, type] = field(default_factory=dict)
     tools: dict[tuple[TypeRef, ToolName], Tool] = field(default_factory=dict)
-    # Pure tools declare no resource, so nothing scopes them but the extension that
+    # Pure tools declare no resource, so nothing scopes them but the adapter that
     # published them: they are addressed by full member ref, like a type or a skill.
     pure: dict[TypeRef, Tool] = field(default_factory=dict)
     instances: dict[InstanceName, Instance] = field(default_factory=dict)

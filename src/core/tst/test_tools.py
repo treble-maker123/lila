@@ -1,7 +1,7 @@
-"""Unit tests for lila.tools — the one tool handler, over the fixture extension.
+"""Unit tests for lila.tools — the one tool handler, over the fixture adapter.
 
-No network: the tests load ``tst/fixtures/lila-fixture``, which is a real extension
-loaded by the real loader, so the handler is exercised end to end without a provider.
+No network: the tests load ``tst/fixtures/adapters``, which holds a real adapter loaded
+by the real loader, so the handler is exercised end to end without a provider.
 """
 
 from __future__ import annotations
@@ -12,19 +12,18 @@ from pathlib import Path as FilePath
 import pytest
 import yaml
 
+from lila.adapters import load
 from lila.executor import Graph, RunContext, RunError, parse_graph, run
-from lila.extensions import load
 from lila.resources import Instance, Registry
 from lila.tools import default_handlers
 
 # region fixtures
 
 GraphFactory = Callable[[str], Graph]
-FIXTURES = FilePath(__file__).parent / "fixtures"
+FIXTURES = FilePath(__file__).parent / "fixtures" / "adapters"
 
 FETCH_GRAPH = """
-skill: fetching
-resources: { inbox: test/fixture@1/mailbox }
+resources: { inbox: test/fixture/mailbox }
 entry: fetch
 input:
   type: object
@@ -43,8 +42,7 @@ return:
 """
 
 JOIN_GRAPH = """
-skill: joining
-resources: { text: test/fixture@1/text }
+resources: { text: test/fixture/text }
 entry: joined
 input:
   type: object
@@ -64,7 +62,6 @@ return:
 
 
 SHOUT_GRAPH = """
-skill: shouting
 entry: loud
 input:
   type: object
@@ -73,7 +70,7 @@ input:
 nodes:
   - id: loud
     type: tool
-    call: test/fixture@1/shout
+    call: test/fixture/shout
     args: { phrase: $.input.phrase }
 edges:
   - { from: loud, to: end }
@@ -92,18 +89,18 @@ def graph_from() -> GraphFactory:
 
 @pytest.fixture
 def registry() -> Registry:
-    """The fixture extension, loaded, with one instance of each of its resource types."""
+    """The fixture adapter, loaded, with one instance of each of its resource types."""
     loaded = load(FIXTURES)
-    mailbox = loaded.types["test/fixture@1/mailbox"]
-    text = loaded.types["test/fixture@1/text"]
+    mailbox = loaded.types["test/fixture/mailbox"]
+    text = loaded.types["test/fixture/text"]
     loaded.register(
         Instance(
             name="fake-inbox",
-            type="test/fixture@1/mailbox",
+            type="test/fixture/mailbox",
             handle=mailbox(host="mail.example.com", token="secret"),
         )
     )
-    loaded.register(Instance(name="strings", type="test/fixture@1/text", handle=text()))
+    loaded.register(Instance(name="strings", type="test/fixture/text", handle=text()))
     return loaded
 
 
@@ -153,7 +150,7 @@ async def test_tool_handler__raises_when_a_pure_ref_names_nothing(
     graph_from: GraphFactory, context: RunContext
 ) -> None:
     # prepare
-    graph = graph_from(SHOUT_GRAPH.replace("test/fixture@1/shout", "test/fixture@1/whisper"))
+    graph = graph_from(SHOUT_GRAPH.replace("test/fixture/shout", "test/fixture/whisper"))
 
     # act / verify
     with pytest.raises(RunError, match="no pure tool"):

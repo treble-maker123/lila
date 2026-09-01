@@ -1,4 +1,4 @@
-"""``test/fixture@1`` — a mailbox that answers from memory, and a stateless toolkit."""
+"""``test/fixture`` — a mailbox that answers from memory, and a stateless toolkit."""
 
 from __future__ import annotations
 

@@ -1,0 +1,34 @@
+description: >-
+  Posts a note to a Discord channel. One tool call, no model — the llm node that shaped
+  the message for chat is worth adding back once the posting path is proven.
+
+resources:                     # what this skill needs, bound to an instance at install
+  alerts: test/discord/channel
+
+input:
+  type: object
+  properties:
+    note: { type: string }     # posted as-is, truncated at Discord's 2000-character cap
+  required: [note]
+
+output:
+  type: object
+  properties:
+    id: { type: string }
+  required: [id]
+
+entry: post
+
+nodes:
+  - id: post
+    type: tool
+    resource: alerts
+    call: post_message
+    args:
+      content: $.input.note
+
+edges:
+  - { from: post, to: end }
+
+return:
+  id: $.post.id

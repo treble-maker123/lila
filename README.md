@@ -39,9 +39,9 @@ flowchart TB
         MEM["Memory<br/><i>within a run ($.node.field), and across runs</i>"]
     end
 
-    subgraph exts["Extensions<br/><i>skills, resource types, tools, eval sets</i>"]
+    subgraph exts["Adapters and skills<br/><i>resource types, tools, graphs, eval sets</i>"]
         BUNDLED["Bundled — LILA authors<br/><i>ships with the harness</i>"]
-        THIRD["Installed — extension authors<br/><i>.lila/extensions/</i>"]
+        THIRD["Installed — adapter and skill authors<br/><i>.lila/adapters/, .lila/skills/</i>"]
     end
 
     CONFIG["Config — LILA users<br/><i>instances (credentials), model bindings</i>"]
@@ -65,10 +65,10 @@ flowchart TB
 | Concepts | Explanation |
 | -------- | ----------- |
 | Run | One execution of a skill, with its own working memory (addressable by `$.<node>.<name>`) and history record. |
-| Skill | An execution graph. Synonymous to workflows in other harnesses. A skill has an identity, versions, declared resources, and is invocable by name. | 
+| Skill | An execution graph. Synonymous to workflows in other harnesses. A skill has declared resources and is invocable by ref; where it sits is its identity, and git versions it. | 
 | Resource | A live handle to information living outside the graph, e.g. credentials, configuration, decryption key. Store information that should be kept out of graph state in a resource. |
 | Tool | Named operation, may operate on resources. |
-| Extension | A unit of extensibility and distribution, which may include resources and skills. |
+| Adapter | A resource type and the tools over it. A leaf: it depends on core and nothing else. |
 
 ### Node Types
 
@@ -78,32 +78,36 @@ flowchart TB
 | `tool` | One tool call, on a declared resource or on nothing | `resource` (omit for a pure tool), `call`, `args`. |
 | `skill.run` | Run another graph by name | `ref` contains the graph reference, or `graph:` for inline, `input`: for the arguments to the skill, and `resources` to declare the list of required resources. |
 
-### Extensions
+### Adapters and skills
 
-Extensions are GitHub packages with a `lila.toml` file at the root, and contains three folders - `code`, `skills`, and `evals`. `code` is what the extension implements; `skills` and `evals` are what it declares.
+An install has two trees, `.lila/adapters/` and `.lila/skills/`, both `<namespace>/<name>/`. There is no manifest: a directory is an adapter iff it holds `code/`, a skill iff it holds `skill.yaml`, and the path is the identity — `adapters/test/email/` publishes the type `test/email/imap`, `skills/test/email-digest/` is the skill `test/email-digest`. The namespace is one repo, one clone, and git is what versions it, so no ref carries a version.
 
-#### Code
+#### Adapters
 
-`code` declares the resource types, and the tools that the skills in this extension may use. A tool that takes a resource as its first parameter operates on it; a tool that takes none is *pure* - it reaches nothing outside its arguments, needs no binding, and needs no stub to replay.
+`code` declares the resource types, and the tools over them. A tool that takes a resource as its first parameter operates on it; a tool that takes none is *pure* - it reaches nothing outside its arguments, needs no binding, and needs no stub to replay.
+
+An adapter never references another adapter's types, which is what keeps it a leaf.
 
 #### Skills
 
-`skills` contains the YAML files that describe the skill graphs that this extension provides.
+A skill directory holds `skill.yaml` — one graph — plus whatever it reads beside it. A skill is the only thing allowed to use more than one adapter, which is why it lives in its own tree rather than inside one. A skill written for a single install is a directory here like any other, under whatever namespace its author likes.
+
+The graph document names nothing about itself; the install owns the name and binds each declared resource to an instance.
 
 #### Evals
 
-`evals` contain the evaluations, as well as results performed against the skills in this extension. This strengthens trust in skills that are shared between many users.
+`evals` contain the evaluations, as well as results performed against skills. This strengthens trust in skills that are shared between many users.
 
 The responsibility for evals is as such - LILA provides the engine, and skill authors provide the datasets and wiring.
 
 #### Notes
 
-- No cross-extension references. If you need a resource or skill from another extension, fork it. This removes the need for a PyPi/NPM-like dependency solver.
+- No cross-adapter references. If you need a resource from another adapter, fork it. This removes the need for a PyPi/NPM-like dependency solver. Combining two adapters is a skill's job.
 
 ### Current Limitations
 
 - **Untrusted content ingested into graphs is unresolved**. Malicious websites and E-mails read into the graph could steer certain skills down undesirable (but not necessary catastrophic) directions. Currently it's the responsibility of the skill owner to design for this.
-- **Trust boundary is install**. Currently third-party Python extensions run in the same process as the main process. I am planning to sandbox this in the future.
+- **Trust boundary is install**. Currently a third-party adapter's Python runs in the same process as the main process. I am planning to sandbox this in the future.
 - **Resources ref points to a specific type owned by a specific publisher**. If there are two publishers with IMAP resources and tools, there is no mechanism (e.g. via an interface) to reconcile the two. Switching from one to another means that the graph may need editing as well. This UX gap is left for future improvements.
 
 ## Random Thoughts & Long-Term Vision

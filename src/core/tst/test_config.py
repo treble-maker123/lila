@@ -9,28 +9,29 @@ from pathlib import Path
 import pytest
 
 from lila import config as config_module
+from lila.adapters import load
 from lila.config import (
     ConfigError,
     InstallConfig,
+    adapters_path,
     build_instances,
     build_models,
     build_resource,
     config_path,
-    extensions_path,
     find_home,
     load_config,
     parse_config,
     skill_bindings,
+    skills_path,
 )
-from lila.extensions import load
 from lila.model import OllamaModel
 from lila.resources import Registry, ResourceError
 
 # region fixtures
 
 ConfigFactory = Callable[[str], InstallConfig]
-FIXTURES = Path(__file__).parent / "fixtures"
-MAILBOX = "test/fixture@1/mailbox"
+FIXTURES = Path(__file__).parent / "fixtures" / "adapters"
+MAILBOX = "test/fixture/mailbox"
 
 FULL_CONFIG = """
 [models.default]
@@ -38,12 +39,12 @@ model = "qwen3:8b"
 host = "http://localhost:11434"
 
 [resources.fake-inbox]
-type = "test/fixture@1/mailbox"
+type = "test/fixture/mailbox"
 host = "mail.example.com"
 port = 993
 secrets = { token = "LILA_INBOX_TOKEN" }
 
-[skills.email-digest.bindings]
+[skills."test/email-digest".bindings]
 inbox = "fake-inbox"
 """
 
@@ -60,7 +61,7 @@ def config() -> ConfigFactory:
 
 @pytest.fixture
 def registry() -> Registry:
-    """The fixture extension, loaded — what a configured resource is built against."""
+    """The fixture adapter, loaded — what a configured resource is built against."""
     return load(FIXTURES)
 
 
@@ -80,7 +81,7 @@ def test_parse_config__reads_models_resources_and_skills_when_all_sections_prese
     assert parsed.resources["fake-inbox"].type == MAILBOX
     assert parsed.resources["fake-inbox"].settings["host"] == "mail.example.com"
     assert parsed.resources["fake-inbox"].secrets == {"token": "LILA_INBOX_TOKEN"}
-    assert parsed.skills["email-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["test/email-digest"].bindings == {"inbox": "fake-inbox"}
 
 
 def test_parse_config__defaults_the_backend_to_ollama_when_unset(config: ConfigFactory) -> None:
@@ -125,7 +126,7 @@ def test_load_config__reads_a_file_when_it_exists(tmp_path: Path) -> None:
     parsed = load_config(path)
 
     # verify
-    assert parsed.skills["email-digest"].bindings == {"inbox": "fake-inbox"}
+    assert parsed.skills["test/email-digest"].bindings == {"inbox": "fake-inbox"}
 
 
 def test_find_home__walks_up_to_the_nearest_install(
@@ -180,7 +181,8 @@ def test_find_home__raises_when_no_install_is_above_the_start(
 def test_config_path__sits_inside_the_install(tmp_path: Path) -> None:
     # act / verify
     assert config_path(tmp_path) == tmp_path / "config.toml"
-    assert extensions_path(tmp_path) == tmp_path / "extensions"
+    assert adapters_path(tmp_path) == tmp_path / "adapters"
+    assert skills_path(tmp_path) == tmp_path / "skills"
 
 
 def test_load_config__raises_when_the_file_is_absent(tmp_path: Path) -> None:
@@ -297,14 +299,14 @@ def test_build_resource__raises_when_the_secret_variable_is_unset(
         build_resource(parsed.resources["fake-inbox"], registry)
 
 
-def test_build_resource__raises_when_no_extension_defines_the_type(
+def test_build_resource__raises_when_no_adapter_defines_the_type(
     config: ConfigFactory, registry: Registry
 ) -> None:
     # prepare
-    parsed = config("[resources.inbox]\ntype = 'acme/pop3@1/pop3'\n")
+    parsed = config("[resources.inbox]\ntype = 'acme/pop3/pop3'\n")
 
     # act / verify
-    with pytest.raises(ConfigError, match="no installed extension defines"):
+    with pytest.raises(ConfigError, match="no installed adapter defines"):
         build_resource(parsed.resources["inbox"], registry)
 
 
@@ -312,7 +314,7 @@ def test_build_resource__raises_when_a_required_setting_is_missing(
     config: ConfigFactory, registry: Registry
 ) -> None:
     # prepare — the mailbox declares host with no default
-    parsed = config("[resources.inbox]\ntype = 'test/fixture@1/mailbox'\ntoken = 'x'\n")
+    parsed = config("[resources.inbox]\ntype = 'test/fixture/mailbox'\ntoken = 'x'\n")
 
     # act / verify
     with pytest.raises(ConfigError, match="needs 'host'"):
@@ -324,7 +326,7 @@ def test_build_resource__raises_when_a_setting_is_not_declared(
 ) -> None:
     # prepare
     parsed = config(
-        "[resources.inbox]\ntype = 'test/fixture@1/mailbox'\n"
+        "[resources.inbox]\ntype = 'test/fixture/mailbox'\n"
         "host = 'a'\ntoken = 'x'\nfolder = 'INBOX'\n"
     )
 
@@ -338,7 +340,7 @@ def test_build_resource__raises_when_a_setting_is_the_wrong_kind(
 ) -> None:
     # prepare
     parsed = config(
-        "[resources.inbox]\ntype = 'test/fixture@1/mailbox'\nhost = 'a'\ntoken = 'x'\nport = 'x'\n"
+        "[resources.inbox]\ntype = 'test/fixture/mailbox'\nhost = 'a'\ntoken = 'x'\nport = 'x'\n"
     )
 
     # act / verify
@@ -362,7 +364,7 @@ def test_skill_bindings__maps_a_skills_resources_to_configured_instances(
     built = build_instances(parsed, registry)
 
     # act
-    bound = skill_bindings(parsed, "email-digest", built)
+    bound = skill_bindings(parsed, "test/email-digest", built)
 
     # verify
     assert bound["inbox"].name == "fake-inbox"
@@ -379,19 +381,19 @@ def test_skill_bindings__raises_when_the_skill_has_no_section(
     built = build_instances(parsed, registry)
 
     # act / verify
-    with pytest.raises(ConfigError, match=r"no \[skills.other\] section"):
-        skill_bindings(parsed, "other", built)
+    with pytest.raises(ConfigError, match=r'no \[skills."test/other"\] section'):
+        skill_bindings(parsed, "test/other", built)
 
 
 def test_skill_bindings__raises_when_a_name_is_bound_to_nothing(
     config: ConfigFactory, registry: Registry
 ) -> None:
     # prepare
-    parsed = config("[skills.email-digest.bindings]\ninbox = 'nowhere'\n")
+    parsed = config("[skills.\"test/email-digest\".bindings]\ninbox = 'nowhere'\n")
 
     # act / verify
     with pytest.raises(ResourceError, match="no resource configured as 'nowhere'"):
-        skill_bindings(parsed, "email-digest", build_instances(parsed, registry))
+        skill_bindings(parsed, "test/email-digest", build_instances(parsed, registry))
 
 
 # endregion

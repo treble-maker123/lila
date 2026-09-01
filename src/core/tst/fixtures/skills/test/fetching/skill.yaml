@@ -1,9 +1,7 @@
-skill: fetching
-version: 1
 description: Fetches one message by id and returns its subject.
 
 resources:
-  inbox: test/fixture@1/mailbox
+  inbox: test/fixture/mailbox
 
 input:
   type: object

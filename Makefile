@@ -40,7 +40,7 @@ test test-unit test-integ:
 # The proof: one skill, against the real mailbox and model that .lila/config.toml names.
 # Read-only. Needs ollama serving the configured model, which must already be pulled.
 # The record is the artifact worth reading afterwards — the digest itself goes to stdout.
-E2E_SKILL := test/email@1/digest
+E2E_SKILL := test/email-digest
 E2E_RECORD := .lila/records/digest.json
 
 e2e:

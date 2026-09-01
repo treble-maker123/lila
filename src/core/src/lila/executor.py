@@ -30,7 +30,6 @@ from lila.values import Json, JsonSchema, Yaml
 # ResourceName/ArgName/SkillRef live in lila.resources, ToolName/TypeRef in lila.ext.
 type NodeId = str  # a node's id in its own graph; ``end`` is the reserved target
 type ModelAlias = str  # resolved against RunContext.models — never a raw model id
-type SkillName = str  # a skill's own name
 type OutputName = str  # key in the graph's ``return:``
 type FieldName = str  # key inside a value — a mapping key or a path's root
 type PathText = str  # a ``$.`` path as written, e.g. ``$.classify.label``
@@ -362,8 +361,9 @@ class Edge:
 class Graph:
     """A whole skill: its nodes, its edges, and the contract at its edges."""
 
-    skill: SkillName
-    version: int
+    # Identity comes from outside the document: the ref it was found under, or
+    # ``<parent-ref>#<node-id>`` for an inline subgraph, which has no file of its own.
+    ref: SkillRef
     entry: NodeId  # where a run starts
     nodes: tuple[Node, ...]
     edges: tuple[Edge, ...]  # file order is semantics — first match wins
@@ -430,7 +430,7 @@ def _require_json_mapping(value: Yaml, what: str, node_id: NodeId | None = None)
     }
 
 
-def _load_llm(raw: dict[str, Yaml], node_id: NodeId) -> LlmConfig:
+def _load_llm(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> LlmConfig:
     """Load an ``llm`` node's config.
 
     Raises:
@@ -451,7 +451,7 @@ def _load_llm(raw: dict[str, Yaml], node_id: NodeId) -> LlmConfig:
     return LlmConfig(prompt=prompt, model=model, think=think)
 
 
-def _load_tool(raw: dict[str, Yaml], node_id: NodeId) -> ToolConfig:
+def _load_tool(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> ToolConfig:
     """Load a ``tool`` node's ``resource:``/``call:``/``args:``. ``resource:`` is optional.
 
     Raises:
@@ -469,19 +469,25 @@ def _load_tool(raw: dict[str, Yaml], node_id: NodeId) -> ToolConfig:
     return ToolConfig(resource=resource, call=call, args=args)
 
 
-def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId) -> SkillRunConfig:
+def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId, ref: SkillRef) -> SkillRunConfig:
     """Load a ``skill.run`` node's config, parsing an inline ``graph:`` if present.
+
+    ``ref`` is the enclosing graph's, and an inline child is identified under it.
 
     Raises:
         GraphError: not exactly one of ref:/graph:, a bad ref:, a non-path in
             resources:, or a malformed inline graph.
     """
-    ref, inline = raw.get("ref"), raw.get("graph")
-    if (ref is None) == (inline is None):
+    child_ref, inline = raw.get("ref"), raw.get("graph")
+    if (child_ref is None) == (inline is None):
         raise GraphError("skill.run needs exactly one of ref: or graph:", node_id=node_id)
-    if ref is not None and not isinstance(ref, str):
-        raise GraphError("ref: must be a name@version or a path", node_id=node_id)
-    graph = parse_graph(_require_mapping(inline, "graph:", node_id)) if inline is not None else None
+    if child_ref is not None and not isinstance(child_ref, str):
+        raise GraphError("ref: must be a skill ref or a path", node_id=node_id)
+    graph = (
+        parse_graph(_require_mapping(inline, "graph:", node_id), f"{ref}#{node_id}")
+        if inline is not None
+        else None
+    )
     node_input = compile_mapping(_require_json_mapping(raw.get("input", {}), "input:", node_id))
     resources: dict[ResourceName, ResourceName] = {}
     for name, value in _require_mapping(raw.get("resources", {}), "resources:", node_id).items():
@@ -493,12 +499,12 @@ def _load_skill_run(raw: dict[str, Yaml], node_id: NodeId) -> SkillRunConfig:
         raise GraphError("for_each: must be a $. path", node_id=node_id)
     for_each = parse_path(str(raw_each)) if raw_each is not None else None
     return SkillRunConfig(
-        ref=ref, graph=graph, input=node_input, resources=resources, for_each=for_each
+        ref=child_ref, graph=graph, input=node_input, resources=resources, for_each=for_each
     )
 
 
 # Node type -> config loader. Adding a transport is one entry.
-NODE_LOADERS: dict[NodeSpelling, Callable[[dict[str, Yaml], NodeId], NodeConfig]] = {
+NODE_LOADERS: dict[NodeSpelling, Callable[[dict[str, Yaml], NodeId, SkillRef], NodeConfig]] = {
     "llm": _load_llm,
     "tool": _load_tool,
     "skill.run": _load_skill_run,
@@ -506,8 +512,10 @@ NODE_LOADERS: dict[NodeSpelling, Callable[[dict[str, Yaml], NodeId], NodeConfig]
 }
 
 
-def _load_node(raw: Yaml) -> Node:
+def _load_node(raw: Yaml, ref: SkillRef) -> Node:
     """Load one node, dispatching on ``type:`` and normalizing graph.run to skill.run.
+
+    ``ref`` is the enclosing graph's; only an inline subgraph reads it.
 
     Raises:
         GraphError: missing id, unknown type, a bad out: schema, or a bad config.
@@ -519,7 +527,7 @@ def _load_node(raw: Yaml) -> Node:
     node_type = node_raw.get("type")
     if not _is_spelling(node_type):
         raise GraphError(f"unknown node type {node_type!r}", node_id=node_id)
-    config = NODE_LOADERS[node_type](node_raw, node_id)
+    config = NODE_LOADERS[node_type](node_raw, node_id, ref)
     out_raw = node_raw.get("out")
     out = _require_json_mapping(out_raw, "out:", node_id) if out_raw is not None else None
     canonical: NodeType = "skill.run" if node_type == "graph.run" else node_type
@@ -560,16 +568,19 @@ def _schema(value: Yaml, what: str) -> JsonSchema | None:
     return None if value is None else _require_json_mapping(value, what)
 
 
-def parse_graph(raw: dict[str, Yaml], source: FilePath | None = None) -> Graph:
-    """Build a Graph from an already-parsed YAML document.
+def parse_graph(
+    raw: dict[str, Yaml],
+    ref: SkillRef = "anonymous",
+    source: FilePath | None = None,
+) -> Graph:
+    """Build a Graph from an already-parsed YAML document, stamped with its ref.
+
+    The document names nothing about itself: ``ref`` is where it was found, which the
+    caller knows and the file does not.
 
     Raises:
         GraphError: any part of the document is malformed.
     """
-    skill = raw.get("skill", raw.get("graph_name", "anonymous"))
-    version = raw.get("version", 1)
-    if not isinstance(version, int):
-        raise GraphError("version: must be an integer")
     entry = raw.get("entry")
     if not isinstance(entry, str):
         raise GraphError("graph needs entry:")
@@ -591,10 +602,9 @@ def parse_graph(raw: dict[str, Yaml], source: FilePath | None = None) -> Graph:
         returns[name] = parse_path(str(value))
 
     return Graph(
-        skill=str(skill),
-        version=version,
+        ref=ref,
         entry=entry,
-        nodes=tuple(_load_node(node) for node in nodes_list),
+        nodes=tuple(_load_node(node, ref) for node in nodes_list),
         edges=tuple(_load_edge(edge) for edge in edges_list),
         description=str(raw.get("description", "")).strip(),
         resources=resources,
@@ -606,8 +616,11 @@ def parse_graph(raw: dict[str, Yaml], source: FilePath | None = None) -> Graph:
     )
 
 
-def load_graph(path: FilePath | str) -> Graph:
-    """Read a graph YAML file and parse it.
+def load_graph(path: FilePath | str, ref: SkillRef | None = None) -> Graph:
+    """Read a graph YAML file and parse it under the ref it was found at.
+
+    A graph loaded by path rather than by ref is identified by that path — honest, and
+    what ``lila check`` and the record then show.
 
     Raises:
         GraphError: the file is not a graph document or is malformed.
@@ -618,7 +631,7 @@ def load_graph(path: FilePath | str) -> Graph:
     raw = yaml.safe_load(file_path.read_text())
     if not isinstance(raw, dict):
         raise GraphError(f"{file_path} is not a graph document")
-    return parse_graph(_require_mapping(raw, "the graph"), source=file_path)
+    return parse_graph(_require_mapping(raw, "the graph"), ref or str(file_path), file_path)
 
 
 # endregion
@@ -812,8 +825,7 @@ class EdgeEntry:
 class RunRecord:
     """What one run did, in order — the artifact a replay and a report read."""
 
-    skill: SkillName
-    version: int
+    skill: SkillRef  # the graph that ran, by the ref it was found under
     nodes: list[NodeEntry] = field(default_factory=list)
     edges: list[EdgeEntry] = field(default_factory=list)
     backend_version: str | None = None  # what produced the outputs, for replay
@@ -969,9 +981,7 @@ async def run(
     """
     _validate(run_input, graph.input, "graph input", None)
     memory = RunMemory(run_input, bind_resources(graph, resources or {}))
-    record = RunRecord(
-        skill=graph.skill, version=graph.version, backend_version=context.backend_version
-    )
+    record = RunRecord(skill=graph.ref, backend_version=context.backend_version)
 
     current = graph.entry
     steps = 0
@@ -1157,6 +1167,6 @@ def resolve_skill_path(root: FilePath) -> SkillResolver:
             candidate = candidate / "skill.yaml"
         if not candidate.exists():
             raise RunError(f"cannot resolve skill ref {ref!r}")
-        return load_graph(candidate)
+        return load_graph(candidate, ref)
 
     return resolve

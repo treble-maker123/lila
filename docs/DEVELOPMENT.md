@@ -81,13 +81,14 @@ make -C src/core test-integ LILA_OLLAMA_MODEL=qwen3:8b
 ### Manual testing
 
 Runs a skill against what `.lila/config.toml` names, so it needs real credentials and a
-running ollama. `--input` and `--arg` values are text; `--input-json` takes structure.
+running ollama. `--input` and `--arg` values are text; `--input-json` and `--arg-json`
+take structure, and are the only way to pass a number or a boolean.
 
 ```sh
 uv run lila check .lila/skills/test/email-digest/skill.yaml   # static check, no run
-uv run lila run morning-digest --record .lila/records/digest.json   # digest 10 unread; read-only
-uv run lila run deploy-notes --input note="deploy is green"         # shape a note, post it
-uv run lila call gmail-personal.list_messages --arg unread=true --arg limit=5
+uv run lila run digest-to-chat --record .lila/records/digest.json   # digest 10 unread, post it
+uv run lila run digest-to-chat --input-json limit=25                # same, 25 unread
+uv run lila call gmail-personal.list_messages --arg-json unread=true --arg-json limit=5
 uv run lila call gmail-personal.get_message --arg id=1234
 uv run lila call discord-alerts.post_message --arg content="hello from lila"
 ```

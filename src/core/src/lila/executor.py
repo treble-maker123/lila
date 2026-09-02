@@ -1034,6 +1034,31 @@ def _contains(needle: Json, haystack: Json) -> bool:
     return False
 
 
+def _with_defaults(
+    run_input: dict[ArgName, Json], schema: JsonSchema | None
+) -> dict[ArgName, Json]:
+    """Fill omitted top-level inputs from their schema's ``default``.
+
+    Only the top level, and only a key the caller left out — a nested default would mean
+    walking an arbitrary schema, and a graph that wants one can say so in its own node.
+
+    A missing path is a run error rather than a null, so this is what lets a graph take
+    an optional input at all: ``limit: {type: integer, default: 10}`` resolves whether or
+    not the caller passed it.
+    """
+    if not isinstance(schema, dict):
+        return run_input
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return run_input
+    defaults = {
+        name: prop["default"]
+        for name, prop in properties.items()
+        if isinstance(prop, dict) and "default" in prop and name not in run_input
+    }
+    return {**defaults, **run_input} if defaults else run_input
+
+
 def _validate(value: Json, schema: JsonSchema | None, what: str, node_id: NodeId | None) -> None:
     """Validate a value against a JSON Schema, doing nothing when none is declared.
 
@@ -1088,6 +1113,7 @@ async def run(
             handler or fails, no edge matches, an edge points at an unknown node, or
             the run exceeds ``max_steps``.
     """
+    run_input = _with_defaults(run_input, graph.input)
     _validate(run_input, graph.input, "graph input", None)
     memory = RunMemory(run_input, bind_resources(graph, resources or {}))
     record = RunRecord(skill=graph.ref, name=name, backend_version=context.backend_version)

@@ -1,20 +1,27 @@
 description: >-
-  Reads the 10 most recent unread messages in a mailbox, summarizes each one in a
-  sentence, and writes a single digest saying what needs attention and what can wait.
-  Read-only — it never moves, flags, or marks anything.
+  Reads the most recent unread messages in a mailbox, summarizes each one in a
+  sentence, folds them into one digest, and posts that digest to a chat channel.
+  Absorbs discord-notify: summarizing and posting were always run as a pair.
+  Read-only on the mailbox: unread stays unread, nothing is moved or flagged.
 
 resources:                     # what this skill needs, bound to an instance at install
   inbox: test/email/imap
+  notify: test/discord/channel
 
 input:
   type: object
-  properties: {}
+  properties:
+    limit:                     # how many of the most recent unread to digest
+      type: integer
+      minimum: 1
+      default: 10              # a digest, not the whole backlog
 
 output:
   type: object
   properties:
     digest: { type: string }
-  required: [digest]
+    id: { type: string }       # the posted message's id
+  required: [digest, id]
 
 entry: list
 
@@ -24,8 +31,8 @@ nodes:
     resource: inbox
     call: fetch                # this skill's name for it; the install says which tool
     args:
-      unread: true
-      limit: 10                # the 10 most recent — a digest, not the whole backlog
+      unread: true             # UNSEEN only — the read backlog is not news
+      limit: $.input.limit
 
   - id: summaries              # map: one child run per id, output is the list
     type: skill.run
@@ -61,7 +68,7 @@ nodes:
         - id: fetch
           type: tool
           resource: inbox
-          call: read             # inline, so the parent's map covers this too
+          call: read             # BODY.PEEK under the hood, so reading leaves it unread
           args:
             id: $.input.message_id
 
@@ -86,11 +93,13 @@ nodes:
         subject: $.fetch.subject
         summary: $.summarize.summary
 
-  - id: digest                 # reduce: the summaries, combined into one note
+  - id: digest                 # reduce: the summaries, combined into one chat message
     type: llm
     prompt: |
       These are today's unread e-mails, one line each.
-      Write a short digest: what needs attention, what can wait.
+      Write a short digest for a chat channel: what needs attention, what can wait.
+      Keep it under 1500 characters — the channel truncates at 2000.
+      If the list is empty, say the inbox is clear.
 
       {{ $.summaries }}
     out:
@@ -99,10 +108,19 @@ nodes:
         digest: { type: string }
       required: [digest]
 
+  - id: post
+    type: tool
+    resource: notify
+    call: send                 # this skill's name for it; the install says which tool
+    args:
+      content: $.digest.digest
+
 edges:
   - { from: list,      to: summaries }
   - { from: summaries, to: digest }
-  - { from: digest,    to: end }
+  - { from: digest,    to: post }
+  - { from: post,      to: end }
 
 return:
   digest: $.digest.digest
+  id: $.post.id

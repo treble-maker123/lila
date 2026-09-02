@@ -314,21 +314,38 @@ def test_call_command__prints_what_the_tool_returned(
     home: Path,
 ) -> None:
     # prepare / act
-    code = call_command("fake-inbox", "get_message", ["id=1"], home)
+    code = call_command("fake-inbox", "get_message", ["id=1"], [], home)
 
     # verify
     assert code == 0
     assert json.loads(capsys.readouterr().out) == {"id": "1", "subject": "subject 1"}
 
 
+def test_call_command__parses_a_json_arg_when_the_tool_takes_a_number(
+    capsys: pytest.CaptureFixture[str],
+    home: Path,
+) -> None:
+    # prepare / act — limit is an int, so as text it would not survive the call
+    code = call_command("fake-inbox", "list_messages", [], ["limit=2"], home)
+
+    # verify
+    assert code == 0
+    assert json.loads(capsys.readouterr().out) == {"ids": ["2", "3"]}
+
+
+def test_call_command__fails_when_a_text_arg_should_have_been_json(home: Path) -> None:
+    # act / verify
+    assert call_command("fake-inbox", "list_messages", ["limit=2"], [], home) == 1
+
+
 def test_call_command__fails_when_the_instance_is_not_configured(home: Path) -> None:
     # act / verify
-    assert call_command("nowhere", "list_messages", [], home) == 1
+    assert call_command("nowhere", "list_messages", [], [], home) == 1
 
 
 def test_call_command__fails_when_the_type_has_no_such_tool(home: Path) -> None:
     # act / verify
-    assert call_command("fake-inbox", "burn_inbox", [], home) == 1
+    assert call_command("fake-inbox", "burn_inbox", [], [], home) == 1
 
 
 # endregion

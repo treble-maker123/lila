@@ -704,6 +704,53 @@ async def test_run__raises_run_error_when_graph_input_breaks_its_schema(
         await run(graph, {"seed": 7}, context)
 
 
+DEFAULTED_GRAPH = """
+entry: first
+input:
+  type: object
+  properties:
+    seed: { type: string, default: fallback }
+nodes:
+  - id: first
+    type: tool
+    resource: store
+    call: echo
+    args: { value: $.input.seed }
+edges:
+  - { from: first, to: end }
+return:
+  value: $.first.value
+"""
+
+
+async def test_run__fills_an_omitted_input_from_its_schema_default(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(DEFAULTED_GRAPH)
+    context = RunContext(handlers={"tool": echo_handler({"value": "x"})})
+
+    # act
+    result = await run(graph, {}, context)
+
+    # verify
+    assert result.memory.resolve(parse_path("$.input.seed")) == "fallback"
+
+
+async def test_run__keeps_a_given_input_over_its_schema_default(
+    graph_from: GraphFactory,
+) -> None:
+    # prepare
+    graph = graph_from(DEFAULTED_GRAPH)
+    context = RunContext(handlers={"tool": echo_handler({"value": "x"})})
+
+    # act
+    result = await run(graph, {"seed": "given"}, context)
+
+    # verify
+    assert result.memory.resolve(parse_path("$.input.seed")) == "given"
+
+
 async def test_run__raises_run_error_when_a_node_loops_past_max_steps(
     graph_from: GraphFactory,
 ) -> None:

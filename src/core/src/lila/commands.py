@@ -255,12 +255,16 @@ def call_command(
     instance: InstanceName,
     call: ToolName,
     pairs: list[str],
+    json_pairs: list[str],
     home_path: FilePath | None = None,
 ) -> int:
     """``lila call`` — one tool call on a configured instance, outside any graph.
 
     The way to see a provider's real answers: message ids to feed a run, and the first
     thing to reach for when a provider misbehaves.
+
+    ``pairs`` stay text and ``json_pairs`` are parsed, the same split ``lila run`` makes:
+    a tool taking an int gets one only through ``--arg-json``.
     """
     try:
         home = home_path.resolve() if home_path is not None else find_home()
@@ -268,7 +272,7 @@ def call_command(
         registry = build_registry(home, config)
         found = registry.instance(instance)
         tool = registry.tool(found.type, call)
-        output = tool.run(found.handle, **parse_input(pairs, []))
+        output = tool.run(found.handle, **parse_input(pairs, json_pairs))
     except (ValueError, TypeError, ConfigError, ResourceError, InstallError, ToolError) as exc:
         print(f"{instance}.{call}: {exc}", file=sys.stderr)
         return FAILED

@@ -125,6 +125,11 @@ secrets = { token = "LILA_DISCORD_TOKEN" }
 # followed by `resources.inbox.instance = ...` is a TOML redefinition error, and the
 # message will not mention skills.
 
+# Two resources — this is what the split buys: the skill reads from one adapter and
+# posts to another, and neither adapter knows the other exists. Note that both this
+# skill and the one below call something `fetch` or `send`; the names are each skill's
+# own, so they collide with nothing.
+
 [[skill]]
 name = "morning-digest"
 source = "test/email-digest"
@@ -132,19 +137,9 @@ enabled = true
 resources.inbox.instance    = "gmail-personal"
 resources.inbox.tools.fetch = "list_messages"
 resources.inbox.tools.read  = "get_message"   # the inline subgraph's call
+resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }
 
 [[skill]]
 name = "deploy-notes"
 source = "test/discord-notify"
 resources.alerts = { instance = "discord-alerts", tools = { send = "post_message" } }
-
-# A skill with two resources — this is what the split buys: the skill reads from one
-# adapter and posts to another, and neither adapter knows the other exists. Note that
-# both skills above and this one call something `fetch` or `send`; the names are each
-# skill's own, so they collide with nothing. Uncomment once such a skill is installed.
-#
-# [[skill]]
-# name = "digest-to-chat"
-# source = "test/email-to-chat"
-# resources.inbox  = { instance = "gmail-personal", tools = { fetch = "list_messages" } }
-# resources.notify = { instance = "discord-alerts", tools = { send = "post_message" } }

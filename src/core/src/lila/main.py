@@ -48,6 +48,13 @@ def _parser() -> argparse.ArgumentParser:
         metavar="NAME=VALUE",
         help="an argument to the tool, as text; repeatable",
     )
+    call.add_argument(
+        "--arg-json",
+        action="append",
+        default=[],
+        metavar="NAME=JSON",
+        help="an argument parsed as JSON, for numbers, booleans, and structure; repeatable",
+    )
     call.add_argument("--home", type=Path, default=None, help=HOME_HELP)
 
     return parser
@@ -67,7 +74,7 @@ def main() -> int:
             return run_command(args.target, args.input, args.input_json, args.home, args.record)
         case _:
             instance, _, call = str(args.target).rpartition(".")
-            return call_command(instance, call, args.arg, args.home)
+            return call_command(instance, call, args.arg, args.arg_json, args.home)
 
 
 if __name__ == "__main__":
